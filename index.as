@@ -20,18 +20,28 @@ extern def strncpy(dst: str, src: str, count: size_t): str;
 let ram: *uint8;
 let PC: uint16 = 0;
 let AF: uint16 = 0;
-let A: *uint8 = &AF as *uint8;
+let A: *uint8 = (&AF as *uint8);
+let F: *uint8 = (&AF as *uint8) + 1;
 let BC: uint16 = 0;
+let B: *uint8 = (&BC as *uint8);
+let C: *uint8 = (&BC as *uint8) + 1;
 let DE: uint16 = 0;
+let D: *uint8 = (&DE as *uint8);
+let E: *uint8 = (&DE as *uint8) + 1;
 let HL: uint16 = 0;
+let H: *uint8 = (&HL as *uint8);
+let L: *uint8 = (&HL as *uint8) + 1;
 let SP: uint16 = 0;
 
 def main() {
   init();
+  init_optable();
+
   open_rom("./boxxle.gb");
 
   while true { emulate(); }
 
+  fini_optable();
   fini();
 }
 
@@ -112,50 +122,163 @@ def open_rom(filename: str) {
   free(title as *uint8);
 }
 
-def readNext8(): uint8 {
-  let value = *(ram + PC);
-  // TODO: `+=`
-  PC = PC + 1;
+def execute() {
+  // Get next opcode
+  let opcode = mmu_next8();
+
+  // Decode and execute instruction
+  *(optable + opcode)();
+}
+
+// =============================================================================
+// [MMU] Memory Management Unit
+// =============================================================================
+
+// Read 8-bits
+def mmu_read8(address: uint16): uint8 {
+  return *(ram + address);
+}
+
+// Read 16-bits
+def mmu_read16(address: uint16): uint8 {
+  let l = mmu_read8(address + 0);
+  let h = mmu_read8(address + 1);
+
+  return uint16(l) | (uint16(h) * 256);
+}
+
+// Read IMMEDIATE 8-bits
+def mmu_next8(): uint8 {
+  let value = mmu_read8(PC);
+  PC += 1;
 
   return value;
 }
 
-def readNext16(): uint16 {
-  let l = readNext8();
-  let h = readNext8();
-  return uint16(l) | (uint16(h) * 256);
+// Read IMMEDIATE 16-bits
+def mmu_next16(): uint8 {
+  let value = mmu_read16(PC);
+  PC += 1;
+
+  return value;
 }
 
-def emulate() {
-  // Get next opcode
-  let opcode = readNext8();
-
-  // TODO: Jump table / 1st-class functions
-  // *(op + opcode)();
-
-  if opcode == 0x00 {
-    // NOP
-  } else if opcode == 0x01 {
-    // LD BC, nn – Set BC to the immediate 8-bit value
-    BC = readNext16();
-  } else if opcode == 0x11 {
-    // LD DE, nn – Set DE to the immediate 8-bit value
-    DE = readNext16();
-  } else if opcode == 0x21 {
-    // LD HL, nn – Set HL to the immediate 8-bit value
-    HL = readNext16();
-  } else if opcode == 0x3E {
-    // LD A, nn – Set A to the immediate 8-bit value
-    *A = readNext8();
-  } else if opcode == 0xC3 {
-    // JP – Set PC to the immediate 16-bit value
-    PC = readNext16();
-  } else if opcode == 0xEA {
-    // LD (nn), A – Set (nn) to A
-    readNext16();
-    // BUG: *(ram + readNext16()) = *A;
-  } else {
-    printf("error: unknown opcode: 0x%02X\n", opcode);
-    exit(1);
-  }
+// Write 8-bits
+def mmu_write8(address: uint16, value: uint8): uint8 {
 }
+
+// Write 16-bits
+def mmu_write16(address: uint16, value: uint16): uint8 {
+}
+
+// =============================================================================
+// [OT] Operation Table
+// =============================================================================
+let optable: *(() -> ());
+
+def init_optable() {
+  optable = malloc(0x1_00) as *(() -> ());
+
+  *(optable + 0x00) = op_00;
+  *(optable + 0x01) = op_01;
+  *(optable + 0x02) = op_02;
+  *(optable + 0x03) = op_03;
+  *(optable + 0x04) = op_04;
+  *(optable + 0x05) = op_05;
+  *(optable + 0x06) = op_06;
+  *(optable + 0x07) = op_07;
+  *(optable + 0x08) = op_08;
+  *(optable + 0x09) = op_09;
+  *(optable + 0x0A) = op_0A;
+  *(optable + 0x0B) = op_0B;
+  *(optable + 0x0C) = op_0C;
+  *(optable + 0x0D) = op_0D;
+  *(optable + 0x0E) = op_0E;
+  *(optable + 0x0F) = op_0F;
+}
+
+def fini_optable() {
+  free(optable as *uint8);
+}
+
+// =============================================================================
+// [CT] Cycle Table
+// =============================================================================
+let cycletable: *uint8;
+
+def init_cycletable() {
+  cycletable = malloc(0x1_00) as *uint8;
+
+  *(cycletable + 0x00) = 4;
+  *(cycletable + 0x01) = 12;
+  *(cycletable + 0x02) = 8;
+  *(cycletable + 0x03) = 8;
+  *(cycletable + 0x04) = 4;
+  *(cycletable + 0x05) = 4;
+  *(cycletable + 0x06) = 8;
+  *(cycletable + 0x07) = 4;
+  *(cycletable + 0x08) = 20;
+  *(cycletable + 0x09) = 8;
+  *(cycletable + 0x0A) = 8;
+  *(cycletable + 0x0B) = 8;
+  *(cycletable + 0x0C) = 4;
+  *(cycletable + 0x0D) = 4;
+  *(cycletable + 0x0E) = 8;
+  *(cycletable + 0x0F) = 4;
+}
+
+def fini_cycletable() {
+  free(cycletable as *uint8);
+}
+
+// =============================================================================
+// [OP] Operations
+// =============================================================================
+
+// [00] NOP
+def op_00() {
+  // Do nothing
+}
+
+// [01] LD BC, nn
+def op_01() {
+  BC = mmu_next16();
+}
+
+// [02] LD (BC), A
+def op_02() {
+  mmu_write8(BC, *A);
+}
+
+// [03] INC BC
+def op_03() {
+  *BC += 1;
+
+  flag_set(FLAG_Z, *BC == 0);
+  flag_set(FLAG_N, 0);
+  flag_set(FLAG_H, ..);
+}
+
+// [04] INC B
+def op_04() {
+  *B += 1;
+  // TODO: Flags
+}
+
+// [05] DEC B
+def op_05() {
+  *B -= 1;
+  // TODO: Flags
+}
+
+
+// [06]
+// [07]
+// [08]
+// [09]
+// [0A]
+// [0B]
+// [0C]
+// [0D]
+// [0E]
+// [0F]

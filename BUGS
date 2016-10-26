@@ -1,3 +1,0 @@
-[x] Type casts (`uint`)
-[x] Function hoisting (during TypeDeduce?)
-[ ] `*(ram + readNext16()) = *A`
