@@ -46,7 +46,10 @@ def main() {
   init_optable();
   init_cycletable();
 
-  open_rom("./missile-command.gb");
+  // open_rom("./missile-command.gb");
+  open_rom("./tetris.gb");
+  // open_rom("./boxxle.gb");
+  // open_rom("./super-mario-land.gb");
 
   while true { execute(); }
 
@@ -204,6 +207,23 @@ def init_optable() {
   *(optable + 0x0D) = op_0D;
   *(optable + 0x0E) = op_0E;
   // TODO: *(optable + 0x0F) = op_0F;
+
+  // TODO: *(optable + 0x10) = op_10;
+  *(optable + 0x11) = op_11;
+  *(optable + 0x12) = op_12;
+  *(optable + 0x13) = op_13;
+  *(optable + 0x14) = op_14;
+  *(optable + 0x15) = op_15;
+  *(optable + 0x16) = op_16;
+  // TODO: *(optable + 0x17) = op_17;
+  *(optable + 0x18) = op_18;
+  *(optable + 0x19) = op_19;
+  *(optable + 0x1A) = op_1A;
+  *(optable + 0x1B) = op_1B;
+  *(optable + 0x1C) = op_1C;
+  *(optable + 0x1D) = op_1D;
+  *(optable + 0x1E) = op_1E;
+  // TODO: *(optable + 0x1F) = op_1F;
 
   *(optable + 0x20) = op_20;
   *(optable + 0x21) = op_21;
@@ -388,6 +408,23 @@ def init_cycletable() {
   *(cycletable + 0x0D) = 4;
   *(cycletable + 0x0E) = 8;
   *(cycletable + 0x0F) = 4;
+
+  *(cycletable + 0x10) = 4;
+  *(cycletable + 0x11) = 12;
+  *(cycletable + 0x12) = 8;
+  *(cycletable + 0x13) = 8;
+  *(cycletable + 0x14) = 4;
+  *(cycletable + 0x15) = 4;
+  *(cycletable + 0x16) = 8;
+  *(cycletable + 0x17) = 4;
+  *(cycletable + 0x18) = 12;
+  *(cycletable + 0x19) = 8;
+  *(cycletable + 0x1A) = 8;
+  *(cycletable + 0x1B) = 8;
+  *(cycletable + 0x1C) = 4;
+  *(cycletable + 0x1D) = 4;
+  *(cycletable + 0x1E) = 8;
+  *(cycletable + 0x1F) = 4;
 
   *(cycletable + 0x20) = 8;  //  +4 IFF
   *(cycletable + 0x21) = 12;
@@ -821,6 +858,78 @@ def op_0E() {
 }
 
 // TODO: [0F] RRCA
+
+// TODO: [10] STOP
+
+// [11] LD DE, nn
+def op_11() {
+  DE = mmu_next16();
+}
+
+// [12] LD (DE), A
+def op_12() {
+  mmu_write8(DE, *A);
+}
+
+// [13] INC DE
+def op_13() {
+  om_inc16(&DE);
+}
+
+// [14] INC D
+def op_14() {
+  om_inc8(D);
+}
+
+// [15] DEC D
+def op_15() {
+  om_dec8(D);
+}
+
+// [16] LD D, n
+def op_16() {
+  *D = mmu_next8();
+}
+
+// TODO: [17] RLA
+
+// [18] JR n
+def op_18() {
+  let n = mmu_next8();
+  om_jp(PC + uint16(n));
+}
+
+// [19] ADD HL, DE
+def op_19() {
+  HL = om_add16(HL, DE);
+}
+
+// [1A] LD A, (DE)
+def op_1A() {
+  *A = mmu_read8(DE);
+}
+
+// [1B] DEC DE
+def op_1B() {
+  om_dec16(&DE);
+}
+
+// [1C] INC E
+def op_1C() {
+  om_inc8(E);
+}
+
+// [1D] DEC E
+def op_1D() {
+  om_dec8(E);
+}
+
+// [1E] LD E, n
+def op_1E() {
+  *E = mmu_next8();
+}
+
+// TODO: [1F] RRA
 
 // [20] JR NZ, n
 def op_20() {
