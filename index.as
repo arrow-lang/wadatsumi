@@ -47,9 +47,9 @@ def main() {
   init_cycletable();
 
   // open_rom("./missile-command.gb");
-  open_rom("./tetris.gb");
+  // open_rom("./tetris.gb");
   // open_rom("./boxxle.gb");
-  // open_rom("./super-mario-land.gb");
+  open_rom("./super-mario-land.gb");
 
   while true { execute(); }
 
@@ -259,6 +259,57 @@ def init_optable() {
   *(optable + 0x3E) = op_3E;
   *(optable + 0x3F) = op_3F;
 
+  *(optable + 0x40) = op_40;
+  *(optable + 0x41) = op_41;
+  *(optable + 0x42) = op_42;
+  *(optable + 0x43) = op_43;
+  *(optable + 0x44) = op_44;
+  *(optable + 0x45) = op_45;
+  *(optable + 0x46) = op_46;
+  *(optable + 0x47) = op_47;
+  *(optable + 0x48) = op_48;
+  *(optable + 0x49) = op_49;
+  *(optable + 0x4A) = op_4A;
+  *(optable + 0x4B) = op_4B;
+  *(optable + 0x4C) = op_4C;
+  *(optable + 0x4D) = op_4D;
+  *(optable + 0x4E) = op_4E;
+  *(optable + 0x4F) = op_4F;
+
+  *(optable + 0x50) = op_50;
+  *(optable + 0x51) = op_51;
+  *(optable + 0x52) = op_52;
+  *(optable + 0x53) = op_53;
+  *(optable + 0x54) = op_54;
+  *(optable + 0x55) = op_55;
+  *(optable + 0x56) = op_56;
+  *(optable + 0x57) = op_57;
+  *(optable + 0x58) = op_58;
+  *(optable + 0x59) = op_59;
+  *(optable + 0x5A) = op_5A;
+  *(optable + 0x5B) = op_5B;
+  *(optable + 0x5C) = op_5C;
+  *(optable + 0x5D) = op_5D;
+  *(optable + 0x5E) = op_5E;
+  *(optable + 0x5F) = op_5F;
+
+  *(optable + 0x60) = op_60;
+  *(optable + 0x61) = op_61;
+  *(optable + 0x62) = op_62;
+  *(optable + 0x63) = op_63;
+  *(optable + 0x64) = op_64;
+  *(optable + 0x65) = op_65;
+  *(optable + 0x66) = op_66;
+  *(optable + 0x67) = op_67;
+  *(optable + 0x68) = op_68;
+  *(optable + 0x69) = op_69;
+  *(optable + 0x6A) = op_6A;
+  *(optable + 0x6B) = op_6B;
+  *(optable + 0x6C) = op_6C;
+  *(optable + 0x6D) = op_6D;
+  *(optable + 0x6E) = op_6E;
+  *(optable + 0x6F) = op_6F;
+
   *(optable + 0x80) = op_80;
   *(optable + 0x81) = op_81;
   *(optable + 0x82) = op_82;
@@ -343,6 +394,23 @@ def init_optable() {
   *(optable + 0xCD) = op_CD;
   *(optable + 0xCE) = op_CE;
   *(optable + 0xCF) = op_CF;
+
+  // TODO: *(optable + 0xD0) = op_D0;
+  // TODO: *(optable + 0xD1) = op_D1;
+  // TODO: *(optable + 0xD2) = op_D2;
+  // *(optable + 0xD3) = _
+  // TODO: *(optable + 0xD4) = op_D4;
+  *(optable + 0xD5) = op_D5;
+  // TODO: *(optable + 0xD6) = op_D6;
+  // TODO: *(optable + 0xD7) = op_D7;
+  // TODO: *(optable + 0xD8) = op_D8;
+  // TODO: *(optable + 0xD9) = op_D9;
+  // TODO: *(optable + 0xDA) = op_DA;
+  // *(optable + 0xDB) = _
+  // TODO: *(optable + 0xDC) = op_DC;
+  // *(optable + 0xDD) = _
+  // TODO: *(optable + 0xDE) = op_DE;
+  *(optable + 0xDF) = op_DF;
 
   *(optable + 0xE0) = op_E0;
   *(optable + 0xE1) = op_E1;
@@ -460,6 +528,57 @@ def init_cycletable() {
   *(cycletable + 0x3E) = 8;
   *(cycletable + 0x3F) = 4;
 
+  *(cycletable + 0x40) = 4;
+  *(cycletable + 0x41) = 4;
+  *(cycletable + 0x42) = 4;
+  *(cycletable + 0x43) = 4;
+  *(cycletable + 0x44) = 4;
+  *(cycletable + 0x45) = 4;
+  *(cycletable + 0x46) = 8;
+  *(cycletable + 0x47) = 4;
+  *(cycletable + 0x48) = 4;
+  *(cycletable + 0x49) = 4;
+  *(cycletable + 0x4A) = 4;
+  *(cycletable + 0x4B) = 4;
+  *(cycletable + 0x4C) = 4;
+  *(cycletable + 0x4D) = 4;
+  *(cycletable + 0x4E) = 8;
+  *(cycletable + 0x4F) = 4;
+
+  *(cycletable + 0x50) = 4;
+  *(cycletable + 0x51) = 4;
+  *(cycletable + 0x52) = 4;
+  *(cycletable + 0x53) = 4;
+  *(cycletable + 0x54) = 4;
+  *(cycletable + 0x55) = 4;
+  *(cycletable + 0x56) = 8;
+  *(cycletable + 0x57) = 4;
+  *(cycletable + 0x58) = 4;
+  *(cycletable + 0x59) = 4;
+  *(cycletable + 0x5A) = 4;
+  *(cycletable + 0x5B) = 4;
+  *(cycletable + 0x5C) = 4;
+  *(cycletable + 0x5D) = 4;
+  *(cycletable + 0x5E) = 8;
+  *(cycletable + 0x5F) = 4;
+
+  *(cycletable + 0x60) = 4;
+  *(cycletable + 0x61) = 4;
+  *(cycletable + 0x62) = 4;
+  *(cycletable + 0x63) = 4;
+  *(cycletable + 0x64) = 4;
+  *(cycletable + 0x65) = 4;
+  *(cycletable + 0x66) = 8;
+  *(cycletable + 0x67) = 4;
+  *(cycletable + 0x68) = 4;
+  *(cycletable + 0x69) = 4;
+  *(cycletable + 0x6A) = 4;
+  *(cycletable + 0x6B) = 4;
+  *(cycletable + 0x6C) = 4;
+  *(cycletable + 0x6D) = 4;
+  *(cycletable + 0x6E) = 8;
+  *(cycletable + 0x6F) = 4;
+
   *(cycletable + 0x80) = 4;
   *(cycletable + 0x81) = 4;
   *(cycletable + 0x82) = 4;
@@ -543,6 +662,23 @@ def init_cycletable() {
   *(cycletable + 0xCD) = 24;
   *(cycletable + 0xCE) = 8;
   *(cycletable + 0xCF) = 16;
+
+  *(cycletable + 0xD0) = 8;   // +12 IFF
+  *(cycletable + 0xD1) = 12;
+  *(cycletable + 0xD2) = 12;  //  +4 IFF
+  // *(cycletable + 0xD3) = _
+  *(cycletable + 0xD4) = 12;  // +12 IFF
+  *(cycletable + 0xD5) = 16;
+  *(cycletable + 0xD6) = 8;
+  *(cycletable + 0xD7) = 16;
+  *(cycletable + 0xD8) = 8;   // +12 IFF
+  *(cycletable + 0xD9) = 16;
+  *(cycletable + 0xDA) = 12;  //  +4 IFF
+  // *(cycletable + 0xDB) = _
+  *(cycletable + 0xDC) = 12;  // +12 IFF
+  // *(cycletable + 0xDD) = _
+  *(cycletable + 0xDE) = 8;
+  *(cycletable + 0xDF) = 16;
 
   *(cycletable + 0xE0) = 12;
   *(cycletable + 0xE1) = 12;
@@ -1158,6 +1294,246 @@ def op_3F() {
   flag_set(FLAG_N, false);
 }
 
+// [40] LD B, B
+def op_40() {
+  *B = *B;
+}
+
+// [41] LD B, C
+def op_41() {
+  *B = *C;
+}
+
+// [42] LD B, D
+def op_42() {
+  *B = *D;
+}
+
+// [43] LD B, E
+def op_43() {
+  *B = *E;
+}
+
+// [44] LD B, H
+def op_44() {
+  *B = *H;
+}
+
+// [45] LD B, L
+def op_45() {
+  *B = *L;
+}
+
+// [46] LD B, (HL)
+def op_46() {
+  *B = mmu_read8(HL);
+}
+
+// [47] LD B, A
+def op_47() {
+  *B = *A;
+}
+
+// [48] LD C, B
+def op_48() {
+  *C = *B;
+}
+
+// [49] LD C, C
+def op_49() {
+  *C = *C;
+}
+
+// [4A] LD C, D
+def op_4A() {
+  *C = *D;
+}
+
+// [4B] LD C, E
+def op_4B() {
+  *C = *E;
+}
+
+// [4C] LD C, H
+def op_4C() {
+  *C = *H;
+}
+
+// [4D] LD C, L
+def op_4D() {
+  *C = *L;
+}
+
+// [4E] LD C, (HL)
+def op_4E() {
+  *C = mmu_read8(HL);
+}
+
+// [4F] LD C, A
+def op_4F() {
+  *C = *A;
+}
+
+// [50] LD D, B
+def op_50() {
+  *D = *B;
+}
+
+// [51] LD D, C
+def op_51() {
+  *D = *C;
+}
+
+// [52] LD D, D
+def op_52() {
+  *D = *D;
+}
+
+// [53] LD D, E
+def op_53() {
+  *D = *E;
+}
+
+// [54] LD D, H
+def op_54() {
+  *D = *H;
+}
+
+// [55] LD D, L
+def op_55() {
+  *D = *L;
+}
+
+// [56] LD D, (HL)
+def op_56() {
+  *D = mmu_read8(HL);
+}
+
+// [57] LD D, A
+def op_57() {
+  *D = *A;
+}
+
+// [58] LD E, B
+def op_58() {
+  *E = *B;
+}
+
+// [59] LD E, C
+def op_59() {
+  *E = *C;
+}
+
+// [5A] LD E, D
+def op_5A() {
+  *E = *D;
+}
+
+// [5B] LD E, E
+def op_5B() {
+  *E = *E;
+}
+
+// [5C] LD E, H
+def op_5C() {
+  *E = *H;
+}
+
+// [5D] LD E, L
+def op_5D() {
+  *E = *L;
+}
+
+// [5E] LD E, (HL)
+def op_5E() {
+  *E = mmu_read8(HL);
+}
+
+// [5F] LD E, A
+def op_5F() {
+  *E = *A;
+}
+
+// [60] LD H, B
+def op_60() {
+  *H = *B;
+}
+
+// [61] LD H, C
+def op_61() {
+  *H = *C;
+}
+
+// [62] LD H, D
+def op_62() {
+  *H = *D;
+}
+
+// [63] LD H, E
+def op_63() {
+  *H = *E;
+}
+
+// [64] LD H, H
+def op_64() {
+  *H = *H;
+}
+
+// [65] LD H, L
+def op_65() {
+  *H = *L;
+}
+
+// [66] LD H, (HL)
+def op_66() {
+  *H = mmu_read8(HL);
+}
+
+// [67] LD H, A
+def op_67() {
+  *H = *A;
+}
+
+// [68] LD L, B
+def op_68() {
+  *L = *B;
+}
+
+// [69] LD L, C
+def op_69() {
+  *L = *C;
+}
+
+// [6A] LD L, D
+def op_6A() {
+  *L = *D;
+}
+
+// [6B] LD L, E
+def op_6B() {
+  *L = *E;
+}
+
+// [6C] LD L, H
+def op_6C() {
+  *L = *H;
+}
+
+// [6D] LD L, L
+def op_6D() {
+  *L = *L;
+}
+
+// [6E] LD L, (HL)
+def op_6E() {
+  *L = mmu_read8(HL);
+}
+
+// [6F] LD L, A
+def op_6F() {
+  *L = *A;
+}
+
 // [80] ADD A, B
 def op_80() {
   *A = om_add8(*A, *B);
@@ -1583,6 +1959,16 @@ def op_CE() {
 // [CF] RST $08
 def op_CF() {
   om_jp(0x08);
+}
+
+// [D5] PUSH DE
+def op_D5() {
+  om_push16(&DE);
+}
+
+// [DF] RST $18
+def op_DF() {
+  om_jp(0x18);
 }
 
 // [E0] LD ($FF00 + n), A
