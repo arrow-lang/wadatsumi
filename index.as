@@ -1,4 +1,9 @@
 
+// TODO: Determine if AF is stored as AF or FA in memory
+// TODO: Finish opcodes
+// TODO: Timing
+// TODO: Tileset rendering
+
 // libc
 type size_t = int64;
 type FILE = int64;
@@ -41,7 +46,7 @@ def main() {
   init_optable();
   init_cycletable();
 
-  open_rom("./boxxle.gb");
+  open_rom("./missile-command.gb");
 
   while true { execute(); }
 
@@ -234,6 +239,74 @@ def init_optable() {
   *(optable + 0x3E) = op_3E;
   *(optable + 0x3F) = op_3F;
 
+  *(optable + 0x80) = op_80;
+  *(optable + 0x81) = op_81;
+  *(optable + 0x82) = op_82;
+  *(optable + 0x83) = op_83;
+  *(optable + 0x84) = op_84;
+  *(optable + 0x85) = op_85;
+  *(optable + 0x86) = op_86;
+  *(optable + 0x87) = op_87;
+  *(optable + 0x88) = op_88;
+  *(optable + 0x89) = op_89;
+  *(optable + 0x8A) = op_8A;
+  *(optable + 0x8B) = op_8B;
+  *(optable + 0x8C) = op_8C;
+  *(optable + 0x8D) = op_8D;
+  *(optable + 0x8E) = op_8E;
+  *(optable + 0x8F) = op_8F;
+
+  *(optable + 0x90) = op_90;
+  *(optable + 0x91) = op_91;
+  *(optable + 0x92) = op_92;
+  *(optable + 0x93) = op_93;
+  *(optable + 0x94) = op_94;
+  *(optable + 0x95) = op_95;
+  *(optable + 0x96) = op_96;
+  *(optable + 0x97) = op_97;
+  *(optable + 0x98) = op_98;
+  *(optable + 0x99) = op_99;
+  *(optable + 0x9A) = op_9A;
+  *(optable + 0x9B) = op_9B;
+  *(optable + 0x9C) = op_9C;
+  *(optable + 0x9D) = op_9D;
+  *(optable + 0x9E) = op_9E;
+  *(optable + 0x9F) = op_9F;
+
+  *(optable + 0xA0) = op_A0;
+  *(optable + 0xA1) = op_A1;
+  *(optable + 0xA2) = op_A2;
+  *(optable + 0xA3) = op_A3;
+  *(optable + 0xA4) = op_A4;
+  *(optable + 0xA5) = op_A5;
+  *(optable + 0xA6) = op_A6;
+  *(optable + 0xA7) = op_A7;
+  *(optable + 0xA8) = op_A8;
+  *(optable + 0xA9) = op_A9;
+  *(optable + 0xAA) = op_AA;
+  *(optable + 0xAB) = op_AB;
+  *(optable + 0xAC) = op_AC;
+  *(optable + 0xAD) = op_AD;
+  *(optable + 0xAE) = op_AE;
+  *(optable + 0xAF) = op_AF;
+
+  *(optable + 0xB0) = op_B0;
+  *(optable + 0xB1) = op_B1;
+  *(optable + 0xB2) = op_B2;
+  *(optable + 0xB3) = op_B3;
+  *(optable + 0xB4) = op_B4;
+  *(optable + 0xB5) = op_B5;
+  *(optable + 0xB6) = op_B6;
+  *(optable + 0xB7) = op_B7;
+  *(optable + 0xB8) = op_B8;
+  *(optable + 0xB9) = op_B9;
+  *(optable + 0xBA) = op_BA;
+  *(optable + 0xBB) = op_BB;
+  *(optable + 0xBC) = op_BC;
+  *(optable + 0xBD) = op_BD;
+  *(optable + 0xBE) = op_BE;
+  *(optable + 0xBF) = op_BF;
+
   *(optable + 0xC0) = op_C0;
   *(optable + 0xC1) = op_C1;
   *(optable + 0xC2) = op_C2;
@@ -349,6 +422,74 @@ def init_cycletable() {
   *(cycletable + 0x3D) = 4;
   *(cycletable + 0x3E) = 8;
   *(cycletable + 0x3F) = 4;
+
+  *(cycletable + 0x80) = 4;
+  *(cycletable + 0x81) = 4;
+  *(cycletable + 0x82) = 4;
+  *(cycletable + 0x83) = 4;
+  *(cycletable + 0x84) = 4;
+  *(cycletable + 0x85) = 4;
+  *(cycletable + 0x86) = 8;
+  *(cycletable + 0x87) = 4;
+  *(cycletable + 0x88) = 4;
+  *(cycletable + 0x89) = 4;
+  *(cycletable + 0x8A) = 4;
+  *(cycletable + 0x8B) = 4;
+  *(cycletable + 0x8C) = 4;
+  *(cycletable + 0x8D) = 4;
+  *(cycletable + 0x8E) = 8;
+  *(cycletable + 0x8F) = 4;
+
+  *(cycletable + 0x90) = 4;
+  *(cycletable + 0x91) = 4;
+  *(cycletable + 0x92) = 4;
+  *(cycletable + 0x93) = 4;
+  *(cycletable + 0x94) = 4;
+  *(cycletable + 0x95) = 4;
+  *(cycletable + 0x96) = 8;
+  *(cycletable + 0x97) = 4;
+  *(cycletable + 0x98) = 4;
+  *(cycletable + 0x99) = 4;
+  *(cycletable + 0x9A) = 4;
+  *(cycletable + 0x9B) = 4;
+  *(cycletable + 0x9C) = 4;
+  *(cycletable + 0x9D) = 4;
+  *(cycletable + 0x9E) = 8;
+  *(cycletable + 0x9F) = 4;
+
+  *(cycletable + 0xA0) = 4;
+  *(cycletable + 0xA1) = 4;
+  *(cycletable + 0xA2) = 4;
+  *(cycletable + 0xA3) = 4;
+  *(cycletable + 0xA4) = 4;
+  *(cycletable + 0xA5) = 4;
+  *(cycletable + 0xA6) = 8;
+  *(cycletable + 0xA7) = 4;
+  *(cycletable + 0xA8) = 4;
+  *(cycletable + 0xA9) = 4;
+  *(cycletable + 0xAA) = 4;
+  *(cycletable + 0xAB) = 4;
+  *(cycletable + 0xAC) = 4;
+  *(cycletable + 0xAD) = 4;
+  *(cycletable + 0xAE) = 8;
+  *(cycletable + 0xAF) = 4;
+
+  *(cycletable + 0xB0) = 4;
+  *(cycletable + 0xB1) = 4;
+  *(cycletable + 0xB2) = 4;
+  *(cycletable + 0xB3) = 4;
+  *(cycletable + 0xB4) = 4;
+  *(cycletable + 0xB5) = 4;
+  *(cycletable + 0xB6) = 8;
+  *(cycletable + 0xB7) = 4;
+  *(cycletable + 0xB8) = 4;
+  *(cycletable + 0xB9) = 4;
+  *(cycletable + 0xBA) = 4;
+  *(cycletable + 0xBB) = 4;
+  *(cycletable + 0xBC) = 4;
+  *(cycletable + 0xBD) = 4;
+  *(cycletable + 0xBE) = 8;
+  *(cycletable + 0xBF) = 4;
 
   *(cycletable + 0xC0) = 8;   // +12 IFF
   *(cycletable + 0xC1) = 12;
@@ -908,6 +1049,326 @@ def op_3F() {
   flag_set(FLAG_N, false);
 }
 
+// [80] ADD A, B
+def op_80() {
+  *A = om_add8(*A, *B);
+}
+
+// [81] ADD A, C
+def op_81() {
+  *A = om_add8(*A, *C);
+}
+
+// [82] ADD A, D
+def op_82() {
+  *A = om_add8(*A, *C);
+}
+
+// [83] ADD A, E
+def op_83() {
+  *A = om_add8(*A, *E);
+}
+
+// [84] ADD A, H
+def op_84() {
+  *A = om_add8(*A, *H);
+}
+
+// [85] ADD A, L
+def op_85() {
+  *A = om_add8(*A, *L);
+}
+
+// [86] ADD A, (HL)
+def op_86() {
+  *A = om_add8(*A, mmu_read8(HL));
+}
+
+// [87] ADD A, A
+def op_87() {
+  *A = om_add8(*A, *A);
+}
+
+// [88] ADC A, B
+def op_88() {
+  *A = om_adc8(*A, *B);
+}
+
+// [89] ADC A, C
+def op_89() {
+  *A = om_adc8(*A, *C);
+}
+
+// [8A] ADC A, D
+def op_8A() {
+  *A = om_adc8(*A, *C);
+}
+
+// [8B] ADC A, E
+def op_8B() {
+  *A = om_adc8(*A, *E);
+}
+
+// [8C] ADC A, H
+def op_8C() {
+  *A = om_adc8(*A, *H);
+}
+
+// [8D] ADC A, L
+def op_8D() {
+  *A = om_adc8(*A, *L);
+}
+
+// [8E] ADC A, (HL)
+def op_8E() {
+  *A = om_adc8(*A, mmu_read8(HL));
+}
+
+// [8F] ADC A, A
+def op_8F() {
+  *A = om_adc8(*A, *A);
+}
+
+// [90] SUB A, B
+def op_90() {
+  *A = om_sub8(*A, *B);
+}
+
+// [91] SUB A, C
+def op_91() {
+  *A = om_sub8(*A, *C);
+}
+
+// [92] SUB A, D
+def op_92() {
+  *A = om_sub8(*A, *C);
+}
+
+// [93] SUB A, E
+def op_93() {
+  *A = om_sub8(*A, *E);
+}
+
+// [94] SUB A, H
+def op_94() {
+  *A = om_sub8(*A, *H);
+}
+
+// [95] SUB A, L
+def op_95() {
+  *A = om_sub8(*A, *L);
+}
+
+// [96] SUB A, (HL)
+def op_96() {
+  *A = om_sub8(*A, mmu_read8(HL));
+}
+
+// [97] SUB A, A
+def op_97() {
+  *A = om_sub8(*A, *A);
+}
+
+// [98] SBC A, B
+def op_98() {
+  *A = om_sbc8(*A, *B);
+}
+
+// [99] SBC A, C
+def op_99() {
+  *A = om_sbc8(*A, *C);
+}
+
+// [9A] SBC A, D
+def op_9A() {
+  *A = om_sbc8(*A, *C);
+}
+
+// [9B] SBC A, E
+def op_9B() {
+  *A = om_sbc8(*A, *E);
+}
+
+// [9C] SBC A, H
+def op_9C() {
+  *A = om_sbc8(*A, *H);
+}
+
+// [9D] SBC A, L
+def op_9D() {
+  *A = om_sbc8(*A, *L);
+}
+
+// [9E] SBC A, (HL)
+def op_9E() {
+  *A = om_sbc8(*A, mmu_read8(HL));
+}
+
+// [9F] SBC A, A
+def op_9F() {
+  *A = om_sbc8(*A, *A);
+}
+
+// [A0] AND A, B
+def op_A0() {
+  *A = om_and8(*A, *B);
+}
+
+// [A1] AND A, C
+def op_A1() {
+  *A = om_and8(*A, *C);
+}
+
+// [A2] AND A, D
+def op_A2() {
+  *A = om_and8(*A, *C);
+}
+
+// [A3] AND A, E
+def op_A3() {
+  *A = om_and8(*A, *E);
+}
+
+// [A4] AND A, H
+def op_A4() {
+  *A = om_and8(*A, *H);
+}
+
+// [A5] AND A, L
+def op_A5() {
+  *A = om_and8(*A, *L);
+}
+
+// [A6] AND A, (HL)
+def op_A6() {
+  *A = om_and8(*A, mmu_read8(HL));
+}
+
+// [A7] AND A, A
+def op_A7() {
+  *A = om_and8(*A, *A);
+}
+
+// [A8] XOR A, B
+def op_A8() {
+  *A = om_xor8(*A, *B);
+}
+
+// [A9] XOR A, C
+def op_A9() {
+  *A = om_xor8(*A, *C);
+}
+
+// [AA] XOR A, D
+def op_AA() {
+  *A = om_xor8(*A, *C);
+}
+
+// [AB] XOR A, E
+def op_AB() {
+  *A = om_xor8(*A, *E);
+}
+
+// [AC] XOR A, H
+def op_AC() {
+  *A = om_xor8(*A, *H);
+}
+
+// [AD] XOR A, L
+def op_AD() {
+  *A = om_xor8(*A, *L);
+}
+
+// [AE] XOR A, (HL)
+def op_AE() {
+  *A = om_xor8(*A, mmu_read8(HL));
+}
+
+// [AF] XOR A, A
+def op_AF() {
+  *A = om_xor8(*A, *A);
+}
+
+// [B0] OR A, B
+def op_B0() {
+  *A = om_or8(*A, *B);
+}
+
+// [B1] OR A, C
+def op_B1() {
+  *A = om_or8(*A, *C);
+}
+
+// [B2] OR A, D
+def op_B2() {
+  *A = om_or8(*A, *C);
+}
+
+// [B3] OR A, E
+def op_B3() {
+  *A = om_or8(*A, *E);
+}
+
+// [B4] OR A, H
+def op_B4() {
+  *A = om_or8(*A, *H);
+}
+
+// [B5] OR A, L
+def op_B5() {
+  *A = om_or8(*A, *L);
+}
+
+// [B6] OR A, (HL)
+def op_B6() {
+  *A = om_or8(*A, mmu_read8(HL));
+}
+
+// [B7] OR A, A
+def op_B7() {
+  *A = om_or8(*A, *A);
+}
+
+// [B8] CP A, B
+def op_B8() {
+  om_sub8(*A, *B);
+}
+
+// [B9] CP A, C
+def op_B9() {
+  om_sub8(*A, *C);
+}
+
+// [BA] CP A, D
+def op_BA() {
+  om_sub8(*A, *C);
+}
+
+// [BB] CP A, E
+def op_BB() {
+  om_sub8(*A, *E);
+}
+
+// [BC] CP A, H
+def op_BC() {
+  om_sub8(*A, *H);
+}
+
+// [BD] CP A, L
+def op_BD() {
+  om_sub8(*A, *L);
+}
+
+// [BE] CP A, (HL)
+def op_BE() {
+  om_sub8(*A, mmu_read8(HL));
+}
+
+// [BF] CP A, A
+def op_BF() {
+  om_sub8(*A, *A);
+}
+
 // [C0] RET NZ
 def op_C0() {
   if not flag_get(FLAG_Z) {
@@ -1145,12 +1606,22 @@ def execute() {
     exit(-1);
   }
 
+  // Execute instruction
+  (*(optable + opcode))();
+
   // DEBUG: Log opcode
   // TODO: Better debug information
   printf("debug: opcode: $%02X\n", opcode);
 
-  // Execute instruction
-  (*(optable + opcode))();
+  // DEBUG: Log registers
+  printf("debug: r: PC=%04X SP=%04X AF=%04X BC=%04X DE=%04X HL=%04X\n",
+    PC,
+    SP,
+    AF,
+    BC,
+    DE,
+    HL
+  );
 
   // Add instruction execution time to cycle counter
   cycles += float64(*(cycletable + opcode));
