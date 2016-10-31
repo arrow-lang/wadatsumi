@@ -1,7 +1,8 @@
 
 // TODO: Finish opcodes
-// TODO: Timing
 // TODO: Tileset rendering
+// TODO: Implement 0x70 - 0x7F
+// TODO: Implement $FF40 AND $FF41 (MMU)
 
 // libc
 type size_t = int64;
@@ -17,14 +18,25 @@ extern def memset(dst: *uint8, ch: c_int, count: size_t): *uint8;
 extern def free(ptr: *uint8);
 extern def fopen(filename: str, mode: str): *FILE;
 extern def fclose(stream: *FILE);
+extern def fwrite(ptr: *uint8, size: size_t, count: size_t, stream: *FILE);
 extern def fread(buffer: *uint8, size: size_t, count: size_t, stream: *FILE): size_t;
 extern def fseek(stream: *FILE, offset: c_long, origin: c_int): c_int;
 extern def ftell(stream: *FILE): c_int;
 extern def strncpy(dst: str, src: str, count: size_t): str;
+extern def clock(): uint64;
+extern def sleep(seconds: uint32);
+
+let CLOCKS_PER_SEC: uint64 = 1000000;
+
+// Memory
+let rom: *uint8;    // ROM  – as big as cartridge
+let vram: *uint8;   // Video RAM – 8 KiB
+let wram: *uint8;   // Work RAM – 8 KiB
+let oam: *uint8;    // Sprite Attribute Table (OAM) – 160 B
+let hram: *uint8;   // High RAM – 127 B
 
 // CPU
-let ram: *uint8;
-let cycles: float64;
+let IT: uint8;
 let IME = false;
 let PC: uint16 = 0;
 let AF: uint16 = 0;
@@ -40,82 +52,57 @@ let HL: uint16 = 0;
 let H: *uint8 = (&HL as *uint8) + 1;
 let L: *uint8 = (&HL as *uint8) + 0;
 let SP: uint16 = 0;
-let log_f: *FILE;
+
+// GPU
+let gpu_mode: uint8;
+let gpu_mode_clock: uint8;
+let gpu_line: uint8;
+
+def panic(s: str) {
+  printf(s);
+  exit(-1);
+}
 
 def main() {
   init();
-  init_optable();
-  init_cycletable();
 
-  log_f = fopen("tracelog", "w");
-
+  // open_rom("./centipede.gb");
   // open_rom("./missile-command.gb");
-  open_rom("./tetris.gb");
-  // open_rom("./boxxle.gb");
+  // open_rom("./tetris.gb");
+  open_rom("./boxxle.gb");
   // open_rom("./super-mario-land.gb");
 
-  while true { execute(); }
+  reset();
 
-  fclose(log_f);
+  execute();
 
-  fini_optable();
-  fini_cycletable();
   fini();
 }
 
 main();
 
 def init() {
-  ram = malloc(0x10000);
-  reset();
+  cpu_init();
+
+  init_optable();
+  init_cycletable();
 }
 
 def reset() {
-  PC = 0x0100;
-  SP = 0xFFFE;
-  IME = true;
-
-  AF = 0x01B0;
-  BC = 0x0013;
-  DE = 0x00D8;
-  HL = 0x014D;
-
-  *(ram + 0xFF05) = 0x00;
-  *(ram + 0xFF06) = 0x00;
-  *(ram + 0xFF07) = 0x00;
-  *(ram + 0xFF10) = 0x80;
-  *(ram + 0xFF11) = 0xBF;
-  *(ram + 0xFF12) = 0xF3;
-  *(ram + 0xFF14) = 0xBF;
-  *(ram + 0xFF16) = 0x3F;
-  *(ram + 0xFF17) = 0x00;
-  *(ram + 0xFF19) = 0xBF;
-  *(ram + 0xFF1A) = 0x7F;
-  *(ram + 0xFF1B) = 0xFF;
-  *(ram + 0xFF1C) = 0x9F;
-  *(ram + 0xFF1E) = 0xBF;
-  *(ram + 0xFF20) = 0xFF;
-  *(ram + 0xFF21) = 0x00;
-  *(ram + 0xFF22) = 0x00;
-  *(ram + 0xFF23) = 0xBF;
-  *(ram + 0xFF24) = 0x77;
-  *(ram + 0xFF25) = 0xF3;
-  // NOTE: $FF26 should be F0 for SGB
-  *(ram + 0xFF26) = 0xF1;
-  *(ram + 0xFF40) = 0x91;
-  *(ram + 0xFF42) = 0x00;
-  *(ram + 0xFF43) = 0x00;
-  *(ram + 0xFF45) = 0x00;
-  *(ram + 0xFF47) = 0xFC;
-  *(ram + 0xFF48) = 0xFF;
-  *(ram + 0xFF49) = 0xFF;
-  *(ram + 0xFF4A) = 0x00;
-  *(ram + 0xFF4B) = 0x00;
-  *(ram + 0xFFFF) = 0x00;
+  cpu_reset();
+  gpu_reset();
 }
 
 def fini() {
-  free(ram);
+  cpu_fini();
+
+  fini_optable();
+  fini_cycletable();
+
+  // Free ROM
+  if rom != 0 as *uint8 {
+    free(rom);
+  }
 }
 
 def open_rom(filename: str) {
@@ -133,12 +120,20 @@ def open_rom(filename: str) {
   let length = ftell(stream);
   fseek(stream, 0, 0);
 
-  // NOTE: Pretend the ROM can't possibly be bigger than 32KiB
-  fread(ram, 1, length, stream);
+  // Free ROM (if needed)
+  if rom != 0 as *uint8 {
+    free(rom);
+  }
+
+  // Allocate space in ROM
+  rom = malloc(length);
+
+  // Read file into ROM
+  fread(rom, 1, length, stream);
 
   // Print out the ROM name
   let title = malloc(0x10) as str;
-  strncpy(title, (ram + 0x134) as str, 0x10);
+  strncpy(title, (rom + 0x134) as str, 0x10);
   printf("open: %s\n", title);
   free(title as *uint8);
 }
@@ -149,7 +144,56 @@ def open_rom(filename: str) {
 
 // Read 8-bits
 def mmu_read8(address: uint16): uint8 {
-  return *(ram + address);
+  // ROM: $0000 – $7FFF
+  if (address & 0xF000) <= 0x7000 {
+    return *(rom + address);
+  }
+
+  // Video RAM: $8000 – $9FFF
+  if (address & 0xF000) <= 0x9000 {
+    return *(vram + (address & 0x1FFF));
+  }
+
+  // External RAM: $A000 – $BFFF
+  if (address & 0xF000) <= 0xB000 {
+    printf("error: unhandled read from external ram: $%04X\n", address);
+    exit(-1);
+  }
+
+  // Work RAM: $C000 – $DFFF
+  // ECHO (of Work RAM): $E000 – $FDFF
+  if (address & 0xF000) <= 0xD000 or address <= 0xFDFF {
+    return *(wram + (address & 0x1FFF));
+  }
+
+  // Sprite Attribute Table (OAM): $FE00 – $FE9F
+  if (address >= 0xFE00) and (address <= 0xFE9F) {
+    return *(oam + (address & 0x9F));
+  }
+
+  // Unusable
+  if (address <= 0xFEFF) {
+    printf("warn: read from unusable memory: $%04X\n", address);
+    return 0;
+  }
+
+  // High RAM (HRAM): $FF80 – $FFFE
+  if (address >= 0xFF80 and address <= 0xFFFE) {
+    return *(hram + ((address & 0xFE) - 0x80));
+  }
+
+  // I/O Ports
+
+  if (address == 0xFF44) {
+    // LY – LCDC Y-Coordinate (R)
+    return gpu_line;
+  }
+
+  printf("warn: unhandled read from memory: $%04X\n", address);
+  // exit(-1);
+
+  // FIXME(arrow): `exit` should be able to be marked divergent
+  return 0;
 }
 
 // Read 16-bits
@@ -178,13 +222,57 @@ def mmu_next16(): uint16 {
 
 // Write 8-bits
 def mmu_write8(address: uint16, value: uint8) {
-  *(ram + address) = value;
+  // ROM: $0000 – $7FFF
+  if (address & 0xF000) <= 0x7000 {
+    *(rom + address) = value;
+    return;
+  }
+
+  // Video RAM: $8000 – $9FFF
+  if (address & 0xF000) <= 0x9000 {
+    *(vram + (address & 0x1FFF)) = value;
+    return;
+  }
+
+  // External RAM: $A000 – $BFFF
+  if (address & 0xF000) <= 0xB000 {
+    printf("error: unhandled write to external ram: $%04X ($%02X)\n", address, value);
+    exit(-1);
+  }
+
+  // Work RAM: $C000 – $DFFF
+  // ECHO (of Work RAM): $E000 – $FDFF
+  if (address & 0xF000) <= 0xD000 or address <= 0xFDFF {
+    *(wram + (address & 0x1FFF)) = value;
+    return;
+  }
+
+  // Sprite Attribute Table (OAM): $FE00 – $FE9F
+  if (address >= 0xFE00) and (address <= 0xFE9F) {
+    *(oam + (address & 0x9F)) = value;
+    return;
+  }
+
+  // Unusable
+  if (address <= 0xFEFF) {
+    printf("warn: write to unusable memory: $%04X ($%02X)\n", address, value);
+    return;
+  }
+
+  // High RAM (HRAM): $FF80 – $FFFE
+  if (address >= 0xFF80 and address <= 0xFFFE) {
+    *(hram + ((address & 0xFE) - 0x80)) = value;
+    return;
+  }
+
+  printf("warn: unhandled write to memory: $%04X ($%02X)\n", address, value);
+  // exit(-1);
 }
 
 // Write 16-bits
 def mmu_write16(address: uint16, value: uint16) {
-  *(ram + address) = uint8(value & 0xFF);
-  *(ram + address + 1) = uint8(value >> 8);
+  mmu_write8(address, uint8(value & 0xFF));
+  mmu_write8(address + 1, uint8(value >> 8));
 }
 
 // =============================================================================
@@ -752,23 +840,27 @@ def flag_geti(flag: Flag): uint8 {
 // =============================================================================
 
 // Increment 8-bit Register
-def om_inc8(r: *uint8) {
-  flag_set(FLAG_H, (((*r & 0xF) + (1 & 0xF)) & 0x10) > 0);
+def om_inc8(r: uint8): uint8 {
+  flag_set(FLAG_H, (((r & 0xF) + (1 & 0xF)) & 0x10) > 0);
 
-  *r += 1;
+  r += 1;
 
-  flag_set(FLAG_Z, *r == 0);
+  flag_set(FLAG_Z, r == 0);
   flag_set(FLAG_N, false);
+
+  return r;
 }
 
 // Decrement 8-bit Register
-def om_dec8(r: *uint8) {
-  flag_set(FLAG_H, (((*r & 0xF) - (1 & 0xF)) & 0x10) < 0);
+def om_dec8(r: uint8): uint8 {
+  flag_set(FLAG_H, (((r & 0xF) - (1 & 0xF)) & 0x10) < 0);
 
-  *r -= 1;
+  r -= 1;
 
-  flag_set(FLAG_Z, *r == 0);
+  flag_set(FLAG_Z, r == 0);
   flag_set(FLAG_N, true);
+
+  return r;
 }
 
 // Increment 16-bit Register
@@ -837,8 +929,12 @@ def om_adc8(a: uint8, b: uint8): uint8 {
 
 // Subtract 8-bit value
 def om_sub8(a: uint8, b: uint8): uint8 {
-  let r = om_add8(a, ~b);
+  flag_set(FLAG_H, (((a & 0xF) - (b & 0xF)) & 0x10) < 0);
 
+  let r = a - b;
+
+  // TODO: flag_set(FLAG_C, r > 0xFFFF);
+  flag_set(FLAG_Z, r == 0);
   flag_set(FLAG_N, true);
 
   return r;
@@ -846,11 +942,7 @@ def om_sub8(a: uint8, b: uint8): uint8 {
 
 // Subtract 8-bit value w/carry
 def om_sbc8(a: uint8, b: uint8): uint8 {
-  let r = om_adc8(a, ~b);
-
-  flag_set(FLAG_N, true);
-
-  return r;
+  return om_sub8(a, b + uint8(flag_geti(FLAG_C)));
 }
 
 // Add 16-bit value
@@ -872,20 +964,19 @@ def om_adc16(a: uint16, b: uint16): uint16 {
 
 // Subtract 16-bit value
 def om_sub16(a: uint16, b: uint16): uint16 {
-  let r = om_add16(a, ~b);
+  flag_set(FLAG_H, (((a & 0xFF) - (b & 0xFF)) & 0x100) < 0);
 
-  flag_set(FLAG_N, true);
+  let r = a - b;
+
+  // TODO: flag_set(FLAG_C, r > 0xFFFF);
+  flag_set(FLAG_N, false);
 
   return r;
 }
 
 // Subtract 16-bit value w/carry
 def om_sbc16(a: uint16, b: uint16): uint16 {
-  let r = om_adc16(a, ~b);
-
-  flag_set(FLAG_N, true);
-
-  return r;
+  return om_sub16(a, b + uint16(flag_geti(FLAG_C)));
 }
 
 // Push 16-bit value
@@ -954,12 +1045,12 @@ def op_03() {
 
 // [04] INC B
 def op_04() {
-  om_inc8(B);
+  *B = om_inc8(*B);
 }
 
 // [05] DEC B
 def op_05() {
-  om_dec8(B);
+  *B = om_dec8(*B);
 }
 
 // [06] LD B, n
@@ -991,12 +1082,12 @@ def op_0B() {
 
 // [0C] INC C
 def op_0C() {
-  om_inc8(C);
+  *C = om_inc8(*C);
 }
 
 // [0D] DEC C
 def op_0D() {
-  om_dec8(C);
+  *C = om_dec8(*C);
 }
 
 // [0E] LD C, n
@@ -1025,12 +1116,12 @@ def op_13() {
 
 // [14] INC D
 def op_14() {
-  om_inc8(D);
+  *D = om_inc8(*D);
 }
 
 // [15] DEC D
 def op_15() {
-  om_dec8(D);
+  *D = om_dec8(*D);
 }
 
 // [16] LD D, n
@@ -1062,12 +1153,12 @@ def op_1B() {
 
 // [1C] INC E
 def op_1C() {
-  om_inc8(E);
+  *E = om_inc8(*E);
 }
 
 // [1D] DEC E
 def op_1D() {
-  om_dec8(E);
+  *E = om_dec8(*E);
 }
 
 // [1E] LD E, n
@@ -1082,7 +1173,7 @@ def op_20() {
   let n = mmu_next8();
   if not flag_get(FLAG_Z) {
     om_jr(n);
-    cycles += 4;
+    IT += 4;
   }
 }
 
@@ -1104,12 +1195,12 @@ def op_23() {
 
 // [24] INC H
 def op_24() {
-  om_inc8(H);
+  *H = om_inc8(*H);
 }
 
 // [25] DEC H
 def op_25() {
-  om_dec8(H);
+  *H = om_dec8(*H);
 }
 
 // [26] LD H, n
@@ -1167,7 +1258,7 @@ def op_28() {
   let n = mmu_next8();
   if flag_get(FLAG_Z) {
     om_jr(n);
-    cycles += 4;
+    IT += 4;
   }
 }
 
@@ -1189,12 +1280,12 @@ def op_2B() {
 
 // [2C] INC L
 def op_2C() {
-  om_inc8(L);
+  *L = om_inc8(*L);
 }
 
 // [2D] DEC L
 def op_2D() {
-  om_dec8(L);
+  *L = om_dec8(*L);
 }
 
 // [2E] LD L, n
@@ -1215,7 +1306,7 @@ def op_30() {
   let n = mmu_next8();
   if not flag_get(FLAG_C) {
     om_jr(n);
-    cycles += 4;
+    IT += 4;
   }
 }
 
@@ -1237,12 +1328,12 @@ def op_33() {
 
 // [34] INC (HL)
 def op_34() {
-  om_inc8(ram + HL);
+  mmu_write8(HL, om_inc8(mmu_read8(HL)));
 }
 
 // [35] DEC (HL)
 def op_35() {
-  om_dec8(ram + HL);
+  mmu_write8(HL, om_dec8(mmu_read8(HL)));
 }
 
 // [36] LD (HL), n
@@ -1262,7 +1353,7 @@ def op_38() {
   let n = mmu_next8();
   if flag_get(FLAG_C) {
     om_jr(n);
-    cycles += 4;
+    IT += 4;
   }
 }
 
@@ -1284,12 +1375,12 @@ def op_3B() {
 
 // [3C] INC A
 def op_3C() {
-  om_inc8(A);
+  *A = om_inc8(*A);
 }
 
 // [3D] DEC A
 def op_3D() {
-  om_dec8(A);
+  *A = om_dec8(*A);
 }
 
 // [3E] LD A, n
@@ -1868,7 +1959,7 @@ def op_BF() {
 def op_C0() {
   if not flag_get(FLAG_Z) {
     om_ret();
-    cycles += 12;
+    IT += 12;
   }
 }
 
@@ -1882,7 +1973,7 @@ def op_C2() {
   let nn = mmu_next16();
   if not flag_get(FLAG_Z) {
     om_jp(nn);
-    cycles += 4;
+    IT += 4;
   }
 }
 
@@ -1896,7 +1987,7 @@ def op_C4() {
   let nn = mmu_next16();
   if not flag_get(FLAG_Z) {
     om_call(nn);
-    cycles += 12;
+    IT += 12;
   }
 }
 
@@ -1919,7 +2010,7 @@ def op_C7() {
 def op_C8() {
   if flag_get(FLAG_Z) {
     om_ret();
-    cycles += 12;
+    IT += 12;
   }
 }
 
@@ -1933,7 +2024,7 @@ def op_CA() {
   let nn = mmu_next16();
   if flag_get(FLAG_Z) {
     om_jp(nn);
-    cycles += 4;
+    IT += 4;
   }
 }
 
@@ -1952,7 +2043,7 @@ def op_CC() {
   let nn = mmu_next16();
   if flag_get(FLAG_Z) {
     om_call(nn);
-    cycles += 12;
+    IT += 12;
   }
 }
 
@@ -2099,9 +2190,74 @@ def op_FF() {
 }
 
 // =============================================================================
-// [EX] Execute
+// [CP] CPU
 // =============================================================================
-def execute() {
+def cpu_init() {
+  // Memory
+  vram = malloc(0x2000);
+  wram = malloc(0x2000);
+  oam = malloc(160);
+  hram = malloc(127);
+}
+
+def cpu_fini() {
+  // Memory
+  free(vram);
+  free(wram);
+  free(oam);
+  free(hram);
+}
+
+def cpu_reset() {
+  // CPU variables
+  PC = 0x0100;
+  SP = 0xFFFE;
+  IME = true;
+
+  // CPU registers
+  AF = 0x01B0;
+  BC = 0x0013;
+  DE = 0x00D8;
+  HL = 0x014D;
+
+  // (Last) Instruction Time (in cycles)
+  IT = 0;
+
+  // mmu_write8(0xFF05, 0x00);
+  // mmu_write8(0xFF06, 0x00);
+  // mmu_write8(0xFF07, 0x00);
+  // mmu_write8(0xFF10, 0x80);
+  // mmu_write8(0xFF11, 0xBF);
+  // mmu_write8(0xFF12, 0xF3);
+  // mmu_write8(0xFF14, 0xBF);
+  // mmu_write8(0xFF16, 0x3F);
+  // mmu_write8(0xFF17, 0x00);
+  // mmu_write8(0xFF19, 0xBF);
+  // mmu_write8(0xFF1A, 0x7F);
+  // mmu_write8(0xFF1B, 0xFF);
+  // mmu_write8(0xFF1C, 0x9F);
+  // mmu_write8(0xFF1E, 0xBF);
+  // mmu_write8(0xFF20, 0xFF);
+  // mmu_write8(0xFF21, 0x00);
+  // mmu_write8(0xFF22, 0x00);
+  // mmu_write8(0xFF23, 0xBF);
+  // mmu_write8(0xFF24, 0x77);
+  // mmu_write8(0xFF25, 0xF3);
+  // // NOTE: $FF26 should be F0 for SGB
+  // mmu_write8(0xFF26, 0xF1);
+  // mmu_write8(0xFF40, 0x91);
+  // mmu_write8(0xFF42, 0x00);
+  // mmu_write8(0xFF43, 0x00);
+  // mmu_write8(0xFF45, 0x00);
+  // mmu_write8(0xFF47, 0xFC);
+  // mmu_write8(0xFF48, 0xFF);
+  // mmu_write8(0xFF49, 0xFF);
+  // mmu_write8(0xFF4A, 0x00);
+  // mmu_write8(0xFF4B, 0x00);
+  // mmu_write8(0xFFFF, 0x00);
+}
+
+def cpu_step(): uint8 {
   // Get next opcode
   let opcode = mmu_next8();
 
@@ -2111,27 +2267,124 @@ def execute() {
     exit(-1);
   }
 
+  // Set instruction time to the base/min
+  IT = *(cycletable + opcode);
+
   // Execute instruction
   (*(optable + opcode))();
 
   // DEBUG: Log opcode
   // TODO: Better debug information
-  fprintf(log_f, "debug: opcode: $%02X\n", opcode);
+  // printf("debug: opcode: $%02X\n", opcode);
 
-  // DEBUG: Log registers
-  fprintf(log_f, "debug: r: PC=%04X SP=%04X AF=%04X BC=%04X DE=%04X HL=%04X\n",
-    PC,
-    SP,
-    AF,
-    BC,
-    DE,
-    HL
-  );
+  if PC == 0x282A {
+    let f = fopen("tile0.bin", "wb");
+    fwrite(vram, 16, 1, f);
+    fclose(f);
 
-  if opcode == 0xFF {
     exit(0);
   }
 
-  // Add instruction execution time to cycle counter
-  cycles += float64(*(cycletable + opcode));
+  return IT;
+}
+
+// =============================================================================
+// [GP] GPU
+// =============================================================================
+def gpu_reset() {
+  gpu_mode = 2;
+  gpu_mode_clock = 0;
+  gpu_line = 0;
+}
+
+def gpu_render_scanline() {
+  // [...]
+}
+
+def gpu_step(cycles: uint8) {
+  gpu_mode_clock += cycles;
+
+  if gpu_mode == 2 {
+    // OAM read mode: scanline active
+    if gpu_mode_clock >= 80 {
+      // Enter scanline mode 3
+      gpu_mode = 3;
+      gpu_mode_clock = 0;
+    }
+  } else if gpu_mode == 3 {
+    // VRAM read mode, scanline active
+    // Treat end of mode 3 as end of scanline
+    if gpu_mode_clock >= 172 {
+      // Enter HBLANK
+      gpu_mode_clock = 0;
+      gpu_mode = 0;
+
+      // Render Scanline
+      gpu_render_scanline();
+    }
+  } else if gpu_mode == 0 {
+    // HBLANK
+    // After the last hblank, render screen data
+    if gpu_mode_clock >= 204 {
+      gpu_mode_clock = 0;
+      gpu_line += 1;
+
+      if gpu_line == 143 {
+        // Enter VBLANK
+        gpu_mode = 1;
+
+        // Present rendered screen data
+        // TODO: gpu_present();
+      } else {
+        gpu_mode = 2;
+      }
+    }
+  } else if gpu_mode == 1 {
+    // VBLANK
+    // VBLANK lasts for 10 lines
+    if gpu_mode_clock >= 456 {
+      gpu_mode_clock = 0;
+      gpu_line += 1;
+
+      if gpu_line > 153 {
+        // Restart scanning (back to the top)
+        gpu_mode = 2;
+        gpu_line = 0;
+      }
+    }
+  }
+}
+
+// =============================================================================
+// [CX] Core
+// =============================================================================
+def execute() {
+  // TODO: Method to stop/pause/etc.
+
+  let clk: float64 = 0;
+  let clk_o = clock();
+
+  while true {
+    // Get elapsed seconds (from start of loop)
+    clk += float64(clock() - clk_o) / float64(CLOCKS_PER_SEC);
+    clk_o = clock();
+
+    // IF clk is <0; sleep for awhile
+    if clk < 0 { sleep(0); continue; }
+
+    // STEP -> CPU
+    let cycles = cpu_step();
+
+    // Reduce clk by cycles taken
+
+    // Clock speed is 4.194304MHz (4194304 Hz)
+    // 1 Hz ~= 1 cycle PER second
+    // 4194304 Hz ~= 4194304 PER second
+    // 1 cycle ~= 0.000000238418579 seconds
+
+    clk -= (float64(cycles) * 0.000000238418579);
+
+    // STEP -> GPU
+    gpu_step(cycles);
+  }
 }
