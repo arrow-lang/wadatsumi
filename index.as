@@ -1,5 +1,4 @@
 
-// TODO: Determine if AF is stored as AF or FA in memory
 // TODO: Finish opcodes
 // TODO: Timing
 // TODO: Tileset rendering
