@@ -12,6 +12,7 @@ type c_int = int32;
 
 extern def exit(status: c_int);
 extern def printf(format: str, ...);
+extern def fprintf(stream: *FILE, format: str, ...);
 extern def malloc(s: size_t): *uint8;
 extern def memset(dst: *uint8, ch: c_int, count: size_t): *uint8;
 extern def free(ptr: *uint8);
@@ -28,30 +29,35 @@ let cycles: float64;
 let IME = false;
 let PC: uint16 = 0;
 let AF: uint16 = 0;
-let A: *uint8 = (&AF as *uint8);
-let F: *uint8 = (&AF as *uint8) + 1;
+let A: *uint8 = (&AF as *uint8) + 1;
+let F: *uint8 = (&AF as *uint8) + 0;
 let BC: uint16 = 0;
-let B: *uint8 = (&BC as *uint8);
-let C: *uint8 = (&BC as *uint8) + 1;
+let B: *uint8 = (&BC as *uint8) + 1;
+let C: *uint8 = (&BC as *uint8) + 0;
 let DE: uint16 = 0;
-let D: *uint8 = (&DE as *uint8);
-let E: *uint8 = (&DE as *uint8) + 1;
+let D: *uint8 = (&DE as *uint8) + 1;
+let E: *uint8 = (&DE as *uint8) + 0;
 let HL: uint16 = 0;
-let H: *uint8 = (&HL as *uint8);
-let L: *uint8 = (&HL as *uint8) + 1;
+let H: *uint8 = (&HL as *uint8) + 1;
+let L: *uint8 = (&HL as *uint8) + 0;
 let SP: uint16 = 0;
+let log_f: *FILE;
 
 def main() {
   init();
   init_optable();
   init_cycletable();
 
+  log_f = fopen("tracelog", "w");
+
   // open_rom("./missile-command.gb");
-  // open_rom("./tetris.gb");
+  open_rom("./tetris.gb");
   // open_rom("./boxxle.gb");
-  open_rom("./super-mario-land.gb");
+  // open_rom("./super-mario-land.gb");
 
   while true { execute(); }
+
+  fclose(log_f);
 
   fini_optable();
   fini_cycletable();
@@ -166,7 +172,7 @@ def mmu_next8(): uint8 {
 // Read IMMEDIATE 16-bits
 def mmu_next16(): uint16 {
   let value = mmu_read16(PC);
-  PC += 1;
+  PC += 2;
 
   return value;
 }
@@ -900,6 +906,12 @@ def om_jp(address: uint16) {
   PC = address;
 }
 
+// Relative Jump
+// 7-bit relative jump address with a sign bit to indicate +/-
+def om_jr(n: uint8) {
+  om_jp(uint16(int16(PC) + int16(int8(n))));
+}
+
 // Call
 def om_call(address: uint16) {
   om_push16(&PC);
@@ -1031,8 +1043,7 @@ def op_16() {
 
 // [18] JR n
 def op_18() {
-  let n = mmu_next8();
-  om_jp(PC + uint16(n));
+  om_jr(mmu_next8());
 }
 
 // [19] ADD HL, DE
@@ -1071,7 +1082,7 @@ def op_1E() {
 def op_20() {
   let n = mmu_next8();
   if not flag_get(FLAG_Z) {
-    om_jp(PC + uint16(n));
+    om_jr(n);
     cycles += 4;
   }
 }
@@ -1156,7 +1167,7 @@ def op_27() {
 def op_28() {
   let n = mmu_next8();
   if flag_get(FLAG_Z) {
-    om_jp(PC + uint16(n));
+    om_jr(n);
     cycles += 4;
   }
 }
@@ -1204,7 +1215,7 @@ def op_2F() {
 def op_30() {
   let n = mmu_next8();
   if not flag_get(FLAG_C) {
-    om_jp(PC + uint16(n));
+    om_jr(n);
     cycles += 4;
   }
 }
@@ -1251,7 +1262,7 @@ def op_37() {
 def op_38() {
   let n = mmu_next8();
   if flag_get(FLAG_C) {
-    om_jp(PC + uint16(n));
+    om_jr(n);
     cycles += 4;
   }
 }
@@ -2106,10 +2117,10 @@ def execute() {
 
   // DEBUG: Log opcode
   // TODO: Better debug information
-  printf("debug: opcode: $%02X\n", opcode);
+  fprintf(log_f, "debug: opcode: $%02X\n", opcode);
 
   // DEBUG: Log registers
-  printf("debug: r: PC=%04X SP=%04X AF=%04X BC=%04X DE=%04X HL=%04X\n",
+  fprintf(log_f, "debug: r: PC=%04X SP=%04X AF=%04X BC=%04X DE=%04X HL=%04X\n",
     PC,
     SP,
     AF,
@@ -2117,6 +2128,10 @@ def execute() {
     DE,
     HL
   );
+
+  if opcode == 0xFF {
+    exit(0);
+  }
 
   // Add instruction execution time to cycle counter
   cycles += float64(*(cycletable + opcode));
