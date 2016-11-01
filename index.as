@@ -22,6 +22,7 @@ extern def fwrite(ptr: *uint8, size: size_t, count: size_t, stream: *FILE);
 extern def fread(buffer: *uint8, size: size_t, count: size_t, stream: *FILE): size_t;
 extern def fseek(stream: *FILE, offset: c_long, origin: c_int): c_int;
 extern def ftell(stream: *FILE): c_int;
+extern def fflush(stream: *FILE);
 extern def strncpy(dst: str, src: str, count: size_t): str;
 extern def clock(): uint64;
 extern def sleep(seconds: uint32);
@@ -35,10 +36,15 @@ let wram: *uint8;   // Work RAM – 8 KiB
 let oam: *uint8;    // Sprite Attribute Table (OAM) – 160 B
 let hram: *uint8;   // High RAM – 127 B
 
-// CPU
-let IT: uint8;
+// CPU: State
+let CYCLES: uint8;
 let IME = false;
 let PC: uint16 = 0;
+let IE: uint8;
+let IF: uint8;
+let HALT = false;
+
+// CPU: Registers
 let AF: uint16 = 0;
 let A: *uint8 = (&AF as *uint8) + 1;
 let F: *uint8 = (&AF as *uint8) + 0;
@@ -69,8 +75,29 @@ def main() {
   // open_rom("./centipede.gb");
   // open_rom("./missile-command.gb");
   // open_rom("./tetris.gb");
-  open_rom("./boxxle.gb");
+  // open_rom("./boxxle.gb");
   // open_rom("./super-mario-land.gb");
+
+  // Are you sure it's executing correctly? You can test the blargg ROM
+  // without any graphics by storing the last byte written to 0xFF01 and
+  // printing the ASCII character written there to a console window if
+  // the byte 0x81 is written to 0xFF02. Also, the main test Roms
+  // won't execute properly without MBC1 support, but the individual
+  // Roms will work fine.
+
+  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/01-special.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/02-interrupts.gb");
+
+  // PASS
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/03-op sp,hl.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/04-op r,imm.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/06-ld r,r.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/08-misc instrs.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/09-op r,r.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/11-op a,(hl).gb");
 
   reset();
 
@@ -132,10 +159,10 @@ def open_rom(filename: str) {
   fread(rom, 1, length, stream);
 
   // Print out the ROM name
-  let title = malloc(0x10) as str;
-  strncpy(title, (rom + 0x134) as str, 0x10);
-  printf("open: %s\n", title);
-  free(title as *uint8);
+  // let title = malloc(0x10) as str;
+  // strncpy(title, (rom + 0x134) as str, 0x10);
+  // printf("open: %s\n", title);
+  // free(title as *uint8);
 }
 
 // =============================================================================
@@ -156,8 +183,8 @@ def mmu_read8(address: uint16): uint8 {
 
   // External RAM: $A000 – $BFFF
   if (address & 0xF000) <= 0xB000 {
-    printf("error: unhandled read from external ram: $%04X\n", address);
-    exit(-1);
+    printf("warn: unhandled read from external ram: $%04X\n", address);
+    return 0;
   }
 
   // Work RAM: $C000 – $DFFF
@@ -184,9 +211,20 @@ def mmu_read8(address: uint16): uint8 {
 
   // I/O Ports
 
-  if (address == 0xFF44) {
+  if address == 0xFF41 {
+    // STAT – LCDC Status (R/W)
+    // TODO: Status interrupt enable/disable
+    // TODO: Coincidence Interrupt (LYC / LY)
+    return gpu_mode;
+  } else if address == 0xFF44 {
     // LY – LCDC Y-Coordinate (R)
     return gpu_line;
+  } else if address == 0xFF0F {
+    // IF – Interrupt Flag (R/W)
+    return IF;
+  } else if address == 0xFFFF {
+    // IE – Interrupt Enable (R/W)
+    return IE;
   }
 
   printf("warn: unhandled read from memory: $%04X\n", address);
@@ -221,6 +259,7 @@ def mmu_next16(): uint16 {
 }
 
 // Write 8-bits
+let blargg: uint8;
 def mmu_write8(address: uint16, value: uint8) {
   // ROM: $0000 – $7FFF
   if (address & 0xF000) <= 0x7000 {
@@ -236,8 +275,8 @@ def mmu_write8(address: uint16, value: uint8) {
 
   // External RAM: $A000 – $BFFF
   if (address & 0xF000) <= 0xB000 {
-    printf("error: unhandled write to external ram: $%04X ($%02X)\n", address, value);
-    exit(-1);
+    printf("warn: unhandled write to external ram: $%04X ($%02X)\n", address, value);
+    return;
   }
 
   // Work RAM: $C000 – $DFFF
@@ -265,13 +304,35 @@ def mmu_write8(address: uint16, value: uint8) {
     return;
   }
 
+  if (address == 0xFF01) {
+    blargg = value;
+    return;
+  }
+
+  if (address == 0xFF02 and value == 0x81) {
+    printf("%C", blargg, blargg);
+    return;
+  }
+
+  // IF – Interrupt Flag (R/W)
+  if (address == 0xFF0F) {
+    IF = value & 0x1F;
+    return;
+  }
+
+  // IE – Interrupt Enable (R/W)
+  if (address == 0xFFFF) {
+    IE = value & 0x1F;
+    return;
+  }
+
   printf("warn: unhandled write to memory: $%04X ($%02X)\n", address, value);
   // exit(-1);
 }
 
 // Write 16-bits
 def mmu_write16(address: uint16, value: uint16) {
-  mmu_write8(address, uint8(value & 0xFF));
+  mmu_write8(address + 0, uint8(value & 0xFF));
   mmu_write8(address + 1, uint8(value >> 8));
 }
 
@@ -279,6 +340,7 @@ def mmu_write16(address: uint16, value: uint16) {
 // [OT] Operation Table
 // =============================================================================
 let optable: *(() -> ());
+let optable_CB: *(() -> ());
 
 def init_optable() {
   optable = malloc(0x1_00 * 8) as *(() -> ());
@@ -291,7 +353,7 @@ def init_optable() {
   *(optable + 0x04) = op_04;
   *(optable + 0x05) = op_05;
   *(optable + 0x06) = op_06;
-  // TODO: *(optable + 0x07) = op_07;
+  *(optable + 0x07) = op_07;
   *(optable + 0x08) = op_08;
   *(optable + 0x09) = op_09;
   *(optable + 0x0A) = op_0A;
@@ -299,7 +361,7 @@ def init_optable() {
   *(optable + 0x0C) = op_0C;
   *(optable + 0x0D) = op_0D;
   *(optable + 0x0E) = op_0E;
-  // TODO: *(optable + 0x0F) = op_0F;
+  *(optable + 0x0F) = op_0F;
 
   // TODO: *(optable + 0x10) = op_10;
   *(optable + 0x11) = op_11;
@@ -308,7 +370,7 @@ def init_optable() {
   *(optable + 0x14) = op_14;
   *(optable + 0x15) = op_15;
   *(optable + 0x16) = op_16;
-  // TODO: *(optable + 0x17) = op_17;
+  *(optable + 0x17) = op_17;
   *(optable + 0x18) = op_18;
   *(optable + 0x19) = op_19;
   *(optable + 0x1A) = op_1A;
@@ -316,7 +378,7 @@ def init_optable() {
   *(optable + 0x1C) = op_1C;
   *(optable + 0x1D) = op_1D;
   *(optable + 0x1E) = op_1E;
-  // TODO: *(optable + 0x1F) = op_1F;
+  *(optable + 0x1F) = op_1F;
 
   *(optable + 0x20) = op_20;
   *(optable + 0x21) = op_21;
@@ -403,6 +465,23 @@ def init_optable() {
   *(optable + 0x6E) = op_6E;
   *(optable + 0x6F) = op_6F;
 
+  *(optable + 0x70) = op_70;
+  *(optable + 0x71) = op_71;
+  *(optable + 0x72) = op_72;
+  *(optable + 0x73) = op_73;
+  *(optable + 0x74) = op_74;
+  *(optable + 0x75) = op_75;
+  *(optable + 0x76) = op_76;
+  *(optable + 0x77) = op_77;
+  *(optable + 0x78) = op_78;
+  *(optable + 0x79) = op_79;
+  *(optable + 0x7A) = op_7A;
+  *(optable + 0x7B) = op_7B;
+  *(optable + 0x7C) = op_7C;
+  *(optable + 0x7D) = op_7D;
+  *(optable + 0x7E) = op_7E;
+  *(optable + 0x7F) = op_7F;
+
   *(optable + 0x80) = op_80;
   *(optable + 0x81) = op_81;
   *(optable + 0x82) = op_82;
@@ -488,21 +567,21 @@ def init_optable() {
   *(optable + 0xCE) = op_CE;
   *(optable + 0xCF) = op_CF;
 
-  // TODO: *(optable + 0xD0) = op_D0;
-  // TODO: *(optable + 0xD1) = op_D1;
-  // TODO: *(optable + 0xD2) = op_D2;
+  *(optable + 0xD0) = op_D0;
+  *(optable + 0xD1) = op_D1;
+  *(optable + 0xD2) = op_D2;
   // *(optable + 0xD3) = _
-  // TODO: *(optable + 0xD4) = op_D4;
+  *(optable + 0xD4) = op_D4;
   *(optable + 0xD5) = op_D5;
-  // TODO: *(optable + 0xD6) = op_D6;
-  // TODO: *(optable + 0xD7) = op_D7;
-  // TODO: *(optable + 0xD8) = op_D8;
-  // TODO: *(optable + 0xD9) = op_D9;
-  // TODO: *(optable + 0xDA) = op_DA;
+  *(optable + 0xD6) = op_D6;
+  *(optable + 0xD7) = op_D7;
+  *(optable + 0xD8) = op_D8;
+  *(optable + 0xD9) = op_D9;
+  *(optable + 0xDA) = op_DA;
   // *(optable + 0xDB) = _
-  // TODO: *(optable + 0xDC) = op_DC;
+  *(optable + 0xDC) = op_DC;
   // *(optable + 0xDD) = _
-  // TODO: *(optable + 0xDE) = op_DE;
+  *(optable + 0xDE) = op_DE;
   *(optable + 0xDF) = op_DF;
 
   *(optable + 0xE0) = op_E0;
@@ -531,23 +610,300 @@ def init_optable() {
   *(optable + 0xF6) = op_F6;
   *(optable + 0xF7) = op_F7;
   *(optable + 0xF8) = op_F8;
-  // TODO: *(optable + 0xF9) = op_F9;
+  *(optable + 0xF9) = op_F9;
   *(optable + 0xFA) = op_FA;
   *(optable + 0xFB) = op_FB;
   // *(optable + 0xFC) = _
   // *(optable + 0xFD) = _
   *(optable + 0xFE) = op_FE;
   *(optable + 0xFF) = op_FF;
+
+  optable_CB = malloc(0x1_00 * 8) as *(() -> ());
+  memset(optable_CB as *uint8, 0, 0x1_00 * 8);
+
+  *(optable_CB + 0x00) = op_CB_00;
+  *(optable_CB + 0x01) = op_CB_01;
+  *(optable_CB + 0x02) = op_CB_02;
+  *(optable_CB + 0x03) = op_CB_03;
+  *(optable_CB + 0x04) = op_CB_04;
+  *(optable_CB + 0x05) = op_CB_05;
+  *(optable_CB + 0x06) = op_CB_06;
+  *(optable_CB + 0x07) = op_CB_07;
+  *(optable_CB + 0x08) = op_CB_08;
+  *(optable_CB + 0x09) = op_CB_09;
+  *(optable_CB + 0x0A) = op_CB_0A;
+  *(optable_CB + 0x0B) = op_CB_0B;
+  *(optable_CB + 0x0C) = op_CB_0C;
+  *(optable_CB + 0x0D) = op_CB_0D;
+  *(optable_CB + 0x0E) = op_CB_0E;
+  *(optable_CB + 0x0F) = op_CB_0F;
+
+  *(optable_CB + 0x10) = op_CB_10;
+  *(optable_CB + 0x11) = op_CB_11;
+  *(optable_CB + 0x12) = op_CB_12;
+  *(optable_CB + 0x13) = op_CB_13;
+  *(optable_CB + 0x14) = op_CB_14;
+  *(optable_CB + 0x15) = op_CB_15;
+  *(optable_CB + 0x16) = op_CB_16;
+  *(optable_CB + 0x17) = op_CB_17;
+  *(optable_CB + 0x18) = op_CB_18;
+  *(optable_CB + 0x19) = op_CB_19;
+  *(optable_CB + 0x1A) = op_CB_1A;
+  *(optable_CB + 0x1B) = op_CB_1B;
+  *(optable_CB + 0x1C) = op_CB_1C;
+  *(optable_CB + 0x1D) = op_CB_1D;
+  *(optable_CB + 0x1E) = op_CB_1E;
+  *(optable_CB + 0x1F) = op_CB_1F;
+
+  *(optable_CB + 0x20) = op_CB_20;
+  *(optable_CB + 0x21) = op_CB_21;
+  *(optable_CB + 0x22) = op_CB_22;
+  *(optable_CB + 0x23) = op_CB_23;
+  *(optable_CB + 0x24) = op_CB_24;
+  *(optable_CB + 0x25) = op_CB_25;
+  *(optable_CB + 0x26) = op_CB_26;
+  *(optable_CB + 0x27) = op_CB_27;
+  *(optable_CB + 0x28) = op_CB_28;
+  *(optable_CB + 0x29) = op_CB_29;
+  *(optable_CB + 0x2A) = op_CB_2A;
+  *(optable_CB + 0x2B) = op_CB_2B;
+  *(optable_CB + 0x2C) = op_CB_2C;
+  *(optable_CB + 0x2D) = op_CB_2D;
+  *(optable_CB + 0x2E) = op_CB_2E;
+  *(optable_CB + 0x2F) = op_CB_2F;
+
+  *(optable_CB + 0x30) = op_CB_30;
+  *(optable_CB + 0x31) = op_CB_31;
+  *(optable_CB + 0x32) = op_CB_32;
+  *(optable_CB + 0x33) = op_CB_33;
+  *(optable_CB + 0x34) = op_CB_34;
+  *(optable_CB + 0x35) = op_CB_35;
+  *(optable_CB + 0x36) = op_CB_36;
+  *(optable_CB + 0x37) = op_CB_37;
+  *(optable_CB + 0x38) = op_CB_38;
+  *(optable_CB + 0x39) = op_CB_39;
+  *(optable_CB + 0x3A) = op_CB_3A;
+  *(optable_CB + 0x3B) = op_CB_3B;
+  *(optable_CB + 0x3C) = op_CB_3C;
+  *(optable_CB + 0x3D) = op_CB_3D;
+  *(optable_CB + 0x3E) = op_CB_3E;
+  *(optable_CB + 0x3F) = op_CB_3F;
+
+  *(optable_CB + 0x40) = op_CB_40;
+  *(optable_CB + 0x41) = op_CB_41;
+  *(optable_CB + 0x42) = op_CB_42;
+  *(optable_CB + 0x43) = op_CB_43;
+  *(optable_CB + 0x44) = op_CB_44;
+  *(optable_CB + 0x45) = op_CB_45;
+  *(optable_CB + 0x46) = op_CB_46;
+  *(optable_CB + 0x47) = op_CB_47;
+  *(optable_CB + 0x48) = op_CB_48;
+  *(optable_CB + 0x49) = op_CB_49;
+  *(optable_CB + 0x4A) = op_CB_4A;
+  *(optable_CB + 0x4B) = op_CB_4B;
+  *(optable_CB + 0x4C) = op_CB_4C;
+  *(optable_CB + 0x4D) = op_CB_4D;
+  *(optable_CB + 0x4E) = op_CB_4E;
+  *(optable_CB + 0x4F) = op_CB_4F;
+
+  *(optable_CB + 0x50) = op_CB_50;
+  *(optable_CB + 0x51) = op_CB_51;
+  *(optable_CB + 0x52) = op_CB_52;
+  *(optable_CB + 0x53) = op_CB_53;
+  *(optable_CB + 0x54) = op_CB_54;
+  *(optable_CB + 0x55) = op_CB_55;
+  *(optable_CB + 0x56) = op_CB_56;
+  *(optable_CB + 0x57) = op_CB_57;
+  *(optable_CB + 0x58) = op_CB_58;
+  *(optable_CB + 0x59) = op_CB_59;
+  *(optable_CB + 0x5A) = op_CB_5A;
+  *(optable_CB + 0x5B) = op_CB_5B;
+  *(optable_CB + 0x5C) = op_CB_5C;
+  *(optable_CB + 0x5D) = op_CB_5D;
+  *(optable_CB + 0x5E) = op_CB_5E;
+  *(optable_CB + 0x5F) = op_CB_5F;
+
+  *(optable_CB + 0x60) = op_CB_60;
+  *(optable_CB + 0x61) = op_CB_61;
+  *(optable_CB + 0x62) = op_CB_62;
+  *(optable_CB + 0x63) = op_CB_63;
+  *(optable_CB + 0x64) = op_CB_64;
+  *(optable_CB + 0x65) = op_CB_65;
+  *(optable_CB + 0x66) = op_CB_66;
+  *(optable_CB + 0x67) = op_CB_67;
+  *(optable_CB + 0x68) = op_CB_68;
+  *(optable_CB + 0x69) = op_CB_69;
+  *(optable_CB + 0x6A) = op_CB_6A;
+  *(optable_CB + 0x6B) = op_CB_6B;
+  *(optable_CB + 0x6C) = op_CB_6C;
+  *(optable_CB + 0x6D) = op_CB_6D;
+  *(optable_CB + 0x6E) = op_CB_6E;
+  *(optable_CB + 0x6F) = op_CB_6F;
+
+  *(optable_CB + 0x70) = op_CB_70;
+  *(optable_CB + 0x71) = op_CB_71;
+  *(optable_CB + 0x72) = op_CB_72;
+  *(optable_CB + 0x73) = op_CB_73;
+  *(optable_CB + 0x74) = op_CB_74;
+  *(optable_CB + 0x75) = op_CB_75;
+  *(optable_CB + 0x76) = op_CB_76;
+  *(optable_CB + 0x77) = op_CB_77;
+  *(optable_CB + 0x78) = op_CB_78;
+  *(optable_CB + 0x79) = op_CB_79;
+  *(optable_CB + 0x7A) = op_CB_7A;
+  *(optable_CB + 0x7B) = op_CB_7B;
+  *(optable_CB + 0x7C) = op_CB_7C;
+  *(optable_CB + 0x7D) = op_CB_7D;
+  *(optable_CB + 0x7E) = op_CB_7E;
+  *(optable_CB + 0x7F) = op_CB_7F;
+
+  *(optable_CB + 0x80) = op_CB_80;
+  *(optable_CB + 0x81) = op_CB_81;
+  *(optable_CB + 0x82) = op_CB_82;
+  *(optable_CB + 0x83) = op_CB_83;
+  *(optable_CB + 0x84) = op_CB_84;
+  *(optable_CB + 0x85) = op_CB_85;
+  *(optable_CB + 0x86) = op_CB_86;
+  *(optable_CB + 0x87) = op_CB_87;
+  *(optable_CB + 0x88) = op_CB_88;
+  *(optable_CB + 0x89) = op_CB_89;
+  *(optable_CB + 0x8A) = op_CB_8A;
+  *(optable_CB + 0x8B) = op_CB_8B;
+  *(optable_CB + 0x8C) = op_CB_8C;
+  *(optable_CB + 0x8D) = op_CB_8D;
+  *(optable_CB + 0x8E) = op_CB_8E;
+  *(optable_CB + 0x8F) = op_CB_8F;
+
+  *(optable_CB + 0x90) = op_CB_90;
+  *(optable_CB + 0x91) = op_CB_91;
+  *(optable_CB + 0x92) = op_CB_92;
+  *(optable_CB + 0x93) = op_CB_93;
+  *(optable_CB + 0x94) = op_CB_94;
+  *(optable_CB + 0x95) = op_CB_95;
+  *(optable_CB + 0x96) = op_CB_96;
+  *(optable_CB + 0x97) = op_CB_97;
+  *(optable_CB + 0x98) = op_CB_98;
+  *(optable_CB + 0x99) = op_CB_99;
+  *(optable_CB + 0x9A) = op_CB_9A;
+  *(optable_CB + 0x9B) = op_CB_9B;
+  *(optable_CB + 0x9C) = op_CB_9C;
+  *(optable_CB + 0x9D) = op_CB_9D;
+  *(optable_CB + 0x9E) = op_CB_9E;
+  *(optable_CB + 0x9F) = op_CB_9F;
+
+  *(optable_CB + 0xA0) = op_CB_A0;
+  *(optable_CB + 0xA1) = op_CB_A1;
+  *(optable_CB + 0xA2) = op_CB_A2;
+  *(optable_CB + 0xA3) = op_CB_A3;
+  *(optable_CB + 0xA4) = op_CB_A4;
+  *(optable_CB + 0xA5) = op_CB_A5;
+  *(optable_CB + 0xA6) = op_CB_A6;
+  *(optable_CB + 0xA7) = op_CB_A7;
+  *(optable_CB + 0xA8) = op_CB_A8;
+  *(optable_CB + 0xA9) = op_CB_A9;
+  *(optable_CB + 0xAA) = op_CB_AA;
+  *(optable_CB + 0xAB) = op_CB_AB;
+  *(optable_CB + 0xAC) = op_CB_AC;
+  *(optable_CB + 0xAD) = op_CB_AD;
+  *(optable_CB + 0xAE) = op_CB_AE;
+  *(optable_CB + 0xAF) = op_CB_AF;
+
+  *(optable_CB + 0xB0) = op_CB_B0;
+  *(optable_CB + 0xB1) = op_CB_B1;
+  *(optable_CB + 0xB2) = op_CB_B2;
+  *(optable_CB + 0xB3) = op_CB_B3;
+  *(optable_CB + 0xB4) = op_CB_B4;
+  *(optable_CB + 0xB5) = op_CB_B5;
+  *(optable_CB + 0xB6) = op_CB_B6;
+  *(optable_CB + 0xB7) = op_CB_B7;
+  *(optable_CB + 0xB8) = op_CB_B8;
+  *(optable_CB + 0xB9) = op_CB_B9;
+  *(optable_CB + 0xBA) = op_CB_BA;
+  *(optable_CB + 0xBB) = op_CB_BB;
+  *(optable_CB + 0xBC) = op_CB_BC;
+  *(optable_CB + 0xBD) = op_CB_BD;
+  *(optable_CB + 0xBE) = op_CB_BE;
+  *(optable_CB + 0xBF) = op_CB_BF;
+
+  *(optable_CB + 0xC0) = op_CB_C0;
+  *(optable_CB + 0xC1) = op_CB_C1;
+  *(optable_CB + 0xC2) = op_CB_C2;
+  *(optable_CB + 0xC3) = op_CB_C3;
+  *(optable_CB + 0xC4) = op_CB_C4;
+  *(optable_CB + 0xC5) = op_CB_C5;
+  *(optable_CB + 0xC6) = op_CB_C6;
+  *(optable_CB + 0xC7) = op_CB_C7;
+  *(optable_CB + 0xC8) = op_CB_C8;
+  *(optable_CB + 0xC9) = op_CB_C9;
+  *(optable_CB + 0xCA) = op_CB_CA;
+  *(optable_CB + 0xCB) = op_CB_CB;
+  *(optable_CB + 0xCC) = op_CB_CC;
+  *(optable_CB + 0xCD) = op_CB_CD;
+  *(optable_CB + 0xCE) = op_CB_CE;
+  *(optable_CB + 0xCF) = op_CB_CF;
+
+  *(optable_CB + 0xD0) = op_CB_D0;
+  *(optable_CB + 0xD1) = op_CB_D1;
+  *(optable_CB + 0xD2) = op_CB_D2;
+  *(optable_CB + 0xD3) = op_CB_D3;
+  *(optable_CB + 0xD4) = op_CB_D4;
+  *(optable_CB + 0xD5) = op_CB_D5;
+  *(optable_CB + 0xD6) = op_CB_D6;
+  *(optable_CB + 0xD7) = op_CB_D7;
+  *(optable_CB + 0xD8) = op_CB_D8;
+  *(optable_CB + 0xD9) = op_CB_D9;
+  *(optable_CB + 0xDA) = op_CB_DA;
+  *(optable_CB + 0xDB) = op_CB_DB;
+  *(optable_CB + 0xDC) = op_CB_DC;
+  *(optable_CB + 0xDD) = op_CB_DD;
+  *(optable_CB + 0xDE) = op_CB_DE;
+  *(optable_CB + 0xDF) = op_CB_DF;
+
+  *(optable_CB + 0xE0) = op_CB_E0;
+  *(optable_CB + 0xE1) = op_CB_E1;
+  *(optable_CB + 0xE2) = op_CB_E2;
+  *(optable_CB + 0xE3) = op_CB_E3;
+  *(optable_CB + 0xE4) = op_CB_E4;
+  *(optable_CB + 0xE5) = op_CB_E5;
+  *(optable_CB + 0xE6) = op_CB_E6;
+  *(optable_CB + 0xE7) = op_CB_E7;
+  *(optable_CB + 0xE8) = op_CB_E8;
+  *(optable_CB + 0xE9) = op_CB_E9;
+  *(optable_CB + 0xEA) = op_CB_EA;
+  *(optable_CB + 0xEB) = op_CB_EB;
+  *(optable_CB + 0xEC) = op_CB_EC;
+  *(optable_CB + 0xED) = op_CB_ED;
+  *(optable_CB + 0xEE) = op_CB_EE;
+  *(optable_CB + 0xEF) = op_CB_EF;
+
+  *(optable_CB + 0xF0) = op_CB_F0;
+  *(optable_CB + 0xF1) = op_CB_F1;
+  *(optable_CB + 0xF2) = op_CB_F2;
+  *(optable_CB + 0xF3) = op_CB_F3;
+  *(optable_CB + 0xF4) = op_CB_F4;
+  *(optable_CB + 0xF5) = op_CB_F5;
+  *(optable_CB + 0xF6) = op_CB_F6;
+  *(optable_CB + 0xF7) = op_CB_F7;
+  *(optable_CB + 0xF8) = op_CB_F8;
+  *(optable_CB + 0xF9) = op_CB_F9;
+  *(optable_CB + 0xFA) = op_CB_FA;
+  *(optable_CB + 0xFB) = op_CB_FB;
+  *(optable_CB + 0xFC) = op_CB_FC;
+  *(optable_CB + 0xFD) = op_CB_FD;
+  *(optable_CB + 0xFE) = op_CB_FE;
+  *(optable_CB + 0xFF) = op_CB_FF;
 }
 
 def fini_optable() {
   free(optable as *uint8);
+  free(optable_CB as *uint8);
 }
 
 // =============================================================================
 // [CT] Cycle Table
 // =============================================================================
 let cycletable: *uint8;
+let cycletable_CB: *uint8;
 
 def init_cycletable() {
   cycletable = malloc(0x1_00) as *uint8;
@@ -672,6 +1028,23 @@ def init_cycletable() {
   *(cycletable + 0x6E) = 8;
   *(cycletable + 0x6F) = 4;
 
+  *(cycletable + 0x70) = 8;
+  *(cycletable + 0x71) = 8;
+  *(cycletable + 0x72) = 8;
+  *(cycletable + 0x73) = 8;
+  *(cycletable + 0x74) = 8;
+  *(cycletable + 0x75) = 8;
+  *(cycletable + 0x76) = 4;
+  *(cycletable + 0x77) = 8;
+  *(cycletable + 0x78) = 4;
+  *(cycletable + 0x79) = 4;
+  *(cycletable + 0x7A) = 4;
+  *(cycletable + 0x7B) = 4;
+  *(cycletable + 0x7C) = 4;
+  *(cycletable + 0x7D) = 4;
+  *(cycletable + 0x7E) = 8;
+  *(cycletable + 0x7F) = 4;
+
   *(cycletable + 0x80) = 4;
   *(cycletable + 0x81) = 4;
   *(cycletable + 0x82) = 4;
@@ -751,6 +1124,7 @@ def init_cycletable() {
   *(cycletable + 0xC8) = 8;   // +12 IFF
   *(cycletable + 0xC9) = 16;
   *(cycletable + 0xCA) = 12;  //  +4 IFF
+  // *(cycletable + 0xCB) = ~
   *(cycletable + 0xCC) = 12;  // +12 IFF
   *(cycletable + 0xCD) = 24;
   *(cycletable + 0xCE) = 8;
@@ -806,10 +1180,36 @@ def init_cycletable() {
   // *(cycletable + 0xFD) = _
   *(cycletable + 0xFE) = 8;
   *(cycletable + 0xFF) = 16;
+
+  cycletable_CB = malloc(0x1_00) as *uint8;
+  memset(cycletable_CB as *uint8, 0, 0x1_00);
+
+  let idx = 0;
+  while idx <= 0xF {
+    *(cycletable_CB + (idx << 4) + 0x00) = 8;
+    *(cycletable_CB + (idx << 4) + 0x01) = 8;
+    *(cycletable_CB + (idx << 4) + 0x02) = 8;
+    *(cycletable_CB + (idx << 4) + 0x03) = 8;
+    *(cycletable_CB + (idx << 4) + 0x04) = 8;
+    *(cycletable_CB + (idx << 4) + 0x05) = 8;
+    *(cycletable_CB + (idx << 4) + 0x06) = 16;
+    *(cycletable_CB + (idx << 4) + 0x07) = 8;
+    *(cycletable_CB + (idx << 4) + 0x08) = 8;
+    *(cycletable_CB + (idx << 4) + 0x09) = 8;
+    *(cycletable_CB + (idx << 4) + 0x0A) = 8;
+    *(cycletable_CB + (idx << 4) + 0x0B) = 8;
+    *(cycletable_CB + (idx << 4) + 0x0C) = 8;
+    *(cycletable_CB + (idx << 4) + 0x0D) = 8;
+    *(cycletable_CB + (idx << 4) + 0x0E) = 16;
+    *(cycletable_CB + (idx << 4) + 0x0F) = 8;
+
+    idx += 1;
+  }
 }
 
 def fini_cycletable() {
   free(cycletable as *uint8);
+  free(cycletable_CB as *uint8);
 }
 
 // =============================================================================
@@ -916,7 +1316,7 @@ def om_add8(a: uint8, b: uint8): uint8 {
   let r = uint16(a) + uint16(b);
 
   flag_set(FLAG_C, r > 0xFFFF);
-  flag_set(FLAG_Z, r == 0);
+  flag_set(FLAG_Z, (r & 0xFF) == 0);
   flag_set(FLAG_N, false);
 
   return uint8(r & 0xFF);
@@ -933,7 +1333,7 @@ def om_sub8(a: uint8, b: uint8): uint8 {
 
   let r = a - b;
 
-  // TODO: flag_set(FLAG_C, r > 0xFFFF);
+  flag_set(FLAG_C, b > a);
   flag_set(FLAG_Z, r == 0);
   flag_set(FLAG_N, true);
 
@@ -960,23 +1360,6 @@ def om_add16(a: uint16, b: uint16): uint16 {
 // Add 16-bit value w/carry
 def om_adc16(a: uint16, b: uint16): uint16 {
   return om_add16(a, b + uint16(flag_geti(FLAG_C)));
-}
-
-// Subtract 16-bit value
-def om_sub16(a: uint16, b: uint16): uint16 {
-  flag_set(FLAG_H, (((a & 0xFF) - (b & 0xFF)) & 0x100) < 0);
-
-  let r = a - b;
-
-  // TODO: flag_set(FLAG_C, r > 0xFFFF);
-  flag_set(FLAG_N, false);
-
-  return r;
-}
-
-// Subtract 16-bit value w/carry
-def om_sbc16(a: uint16, b: uint16): uint16 {
-  return om_sub16(a, b + uint16(flag_geti(FLAG_C)));
 }
 
 // Push 16-bit value
@@ -1013,10 +1396,93 @@ def om_ret() {
   om_pop16(&PC);
 }
 
-// Return (and enable interrupts)
-def om_reti() {
-  IME = true;
-  om_ret();
+// Byte Swap
+def om_swap8(n: uint8): uint8 {
+  let r = (n >> 4) | ((n << 4) & 0xF0);
+
+  flag_set(FLAG_Z, r == 0);
+  flag_set(FLAG_N, false);
+  flag_set(FLAG_H, false);
+  flag_set(FLAG_C, false);
+
+  return r;
+}
+
+// Shift Right
+def om_shr(n: uint8, arithmetic: bool): uint8 {
+  let r = if arithmetic {
+    ((n & 0x7F) >> 1) | (n & 0x80);
+  } else {
+    (n >> 1);
+  };
+
+  flag_set(FLAG_Z, r == 0);
+  flag_set(FLAG_N, false);
+  flag_set(FLAG_H, false);
+  flag_set(FLAG_C, (n & 0x01) != 0);
+
+  return r;
+}
+
+// Shift Left
+def om_shl(n: uint8): uint8 {
+  let r = (n << 1);
+
+  flag_set(FLAG_Z, r == 0);
+  flag_set(FLAG_N, false);
+  flag_set(FLAG_H, false);
+  flag_set(FLAG_C, (n & 0x80) != 0);
+
+  return r;
+}
+
+// Rotate Left (opt. through carry)
+def om_rotl8(n: uint8, carry: bool): uint8 {
+  let r = if carry {
+    (n << 1) | flag_geti(FLAG_C);
+  } else {
+    (n << 1) | (n >> 7);
+  };
+
+  flag_set(FLAG_Z, r == 0);
+  flag_set(FLAG_N, false);
+  flag_set(FLAG_H, false);
+  flag_set(FLAG_C, ((n & 0x80) != 0));
+
+  return r;
+}
+
+// Rotate Right (opt. through carry)
+def om_rotr8(n: uint8, carry: bool): uint8 {
+  let r = if carry {
+    (n >> 1) | (flag_geti(FLAG_C) << 7);
+  } else {
+    (n >> 1) | (n << 7);
+  };
+
+  flag_set(FLAG_Z, r == 0);
+  flag_set(FLAG_N, false);
+  flag_set(FLAG_H, false);
+  flag_set(FLAG_C, ((n & 0x01) != 0));
+
+  return r;
+}
+
+// Bit Test
+def om_bit8(n: uint8, b: uint8) {
+  flag_set(FLAG_Z, (n & (1 << b)) == 0);
+  flag_set(FLAG_N, false);
+  flag_set(FLAG_H, true);
+}
+
+// Bit Set
+def om_set8(n: uint8, b: uint8): uint8 {
+  return n | (1 << b);
+}
+
+// Bit Reset
+def om_res8(n: uint8, b: uint8): uint8 {
+  return n & ~(1 << b);
 }
 
 // =============================================================================
@@ -1058,7 +1524,11 @@ def op_06() {
   *B = mmu_next8();
 }
 
-// TODO: [07] RLCA
+// [07] RLCA
+def op_07() {
+  *A = om_rotl8(*A, false);
+  flag_set(FLAG_Z, false);
+}
 
 // [08] LD (nn), SP
 def op_08() {
@@ -1095,7 +1565,11 @@ def op_0E() {
   *C = mmu_next8();
 }
 
-// TODO: [0F] RRCA
+// [0F] RRCA
+def op_0F() {
+  *A = om_rotr8(*A, false);
+  flag_set(FLAG_Z, false);
+}
 
 // TODO: [10] STOP
 
@@ -1129,7 +1603,11 @@ def op_16() {
   *D = mmu_next8();
 }
 
-// TODO: [17] RLA
+// [17] RLA
+def op_17() {
+  *A = om_rotl8(*A, true);
+  flag_set(FLAG_Z, false);
+}
 
 // [18] JR n
 def op_18() {
@@ -1166,14 +1644,33 @@ def op_1E() {
   *E = mmu_next8();
 }
 
-// TODO: [1F] RRA
+// [1F] RRA
+let tracelog: *FILE = 0 as *FILE;
+def op_1F() {
+  let tmp_A = *A;
+  let tmp_F = *F;
+
+  *A = om_rotr8(*A, true);
+  flag_set(FLAG_Z, false);
+
+  if tracelog == 0 as *FILE {
+    tracelog = fopen("tracelog", "w");
+  }
+
+  fprintf(tracelog, "RRA [%02X %02X] -> [%02X %02X]\n",
+    tmp_A, tmp_F,
+    *A, *F
+  );
+
+  fflush(tracelog);
+}
 
 // [20] JR NZ, n
 def op_20() {
   let n = mmu_next8();
   if not flag_get(FLAG_Z) {
     om_jr(n);
-    IT += 4;
+    CYCLES += 4;
   }
 }
 
@@ -1226,29 +1723,36 @@ def op_27() {
   // add $06 to the accumulator
 
   let r = uint16(*A);
+  let correction: uint16 = if flag_get(FLAG_C) { 0x60; } else { 0x00; };
 
-  if (r & 0xF) > 9 or flag_get(FLAG_H) {
-    if flag_get(FLAG_N) {
-      r -= 0x06;
-    } else {
-      r += 0x06;
-    }
+  if flag_get(FLAG_H) or ((not flag_get(FLAG_N)) and ((r & 0x0F) > 9)) {
+    correction |= 0x06;
   }
 
-  // If the upper 4 bits form a number greater than 9 or C is set,
-  // add $60 to the accumulator
-  if ((r >> 4) & 0xF) > 9 or flag_get(FLAG_H) {
-    if flag_get(FLAG_N) {
-      r -= 0x60;
-    } else {
-      r += 0x60;
-    }
+  if flag_get(FLAG_C) or ((not flag_get(FLAG_N)) and (r > 0x99)) {
+    correction |= 0x60;
   }
 
-  flag_set(FLAG_C, r & 0x100 != 0);
+  if flag_get(FLAG_N) {
+    r -= correction;
+  } else {
+    r += correction;
+  }
+
+  if ((correction << 2) & 0x100) != 0 {
+    flag_set(FLAG_C, true);
+  }
+
   flag_set(FLAG_H, false);
+  // if flag_get(FLAG_N) {
+  //   if flag_get(FLAG_H) {
+  //     flag_set(FLAG_H, (*A & 0xF) <= 5);
+  //   }
+  // } else {
+  //   flag_set(FLAG_H, (*A & 0xF) > 9);
+  // }
 
-  *A = uint8(r);
+  *A = uint8(r & 0xFF);
 
   flag_set(FLAG_Z, *A == 0);
 }
@@ -1258,7 +1762,7 @@ def op_28() {
   let n = mmu_next8();
   if flag_get(FLAG_Z) {
     om_jr(n);
-    IT += 4;
+    CYCLES += 4;
   }
 }
 
@@ -1306,7 +1810,7 @@ def op_30() {
   let n = mmu_next8();
   if not flag_get(FLAG_C) {
     om_jr(n);
-    IT += 4;
+    CYCLES += 4;
   }
 }
 
@@ -1353,7 +1857,7 @@ def op_38() {
   let n = mmu_next8();
   if flag_get(FLAG_C) {
     om_jr(n);
-    IT += 4;
+    CYCLES += 4;
   }
 }
 
@@ -1633,6 +2137,86 @@ def op_6E() {
 // [6F] LD L, A
 def op_6F() {
   *L = *A;
+}
+
+// [70] LD (HL), B
+def op_70() {
+  mmu_write8(HL, *B);
+}
+
+// [71] LD (HL), C
+def op_71() {
+  mmu_write8(HL, *C);
+}
+
+// [72] LD (HL), D
+def op_72() {
+  mmu_write8(HL, *D);
+}
+
+// [73] LD (HL), E
+def op_73() {
+  mmu_write8(HL, *E);
+}
+
+// [74] LD (HL), H
+def op_74() {
+  mmu_write8(HL, *H);
+}
+
+// [75] LD (HL), L
+def op_75() {
+  mmu_write8(HL, *L);
+}
+
+// [76] HALT
+def op_76() {
+  HALT = true;
+}
+
+// [77] LD (HL), A
+def op_77() {
+  mmu_write8(HL, *A);
+}
+
+// [78] LD A, B
+def op_78() {
+  *A = *B;
+}
+
+// [79] LD A, C
+def op_79() {
+  *A = *C;
+}
+
+// [7A] LD A, D
+def op_7A() {
+  *A = *D;
+}
+
+// [7B] LD A, E
+def op_7B() {
+  *A = *E;
+}
+
+// [7C] LD A, H
+def op_7C() {
+  *A = *H;
+}
+
+// [7D] LD A, L
+def op_7D() {
+  *A = *L;
+}
+
+// [7E] LD A, (HL)
+def op_7E() {
+  *A = mmu_read8(HL);
+}
+
+// [7F] LD A, A
+def op_7F() {
+  *A = *A;
 }
 
 // [80] ADD A, B
@@ -1959,7 +2543,7 @@ def op_BF() {
 def op_C0() {
   if not flag_get(FLAG_Z) {
     om_ret();
-    IT += 12;
+    CYCLES += 12;
   }
 }
 
@@ -1973,7 +2557,7 @@ def op_C2() {
   let nn = mmu_next16();
   if not flag_get(FLAG_Z) {
     om_jp(nn);
-    IT += 4;
+    CYCLES += 4;
   }
 }
 
@@ -1987,7 +2571,7 @@ def op_C4() {
   let nn = mmu_next16();
   if not flag_get(FLAG_Z) {
     om_call(nn);
-    IT += 12;
+    CYCLES += 12;
   }
 }
 
@@ -2010,7 +2594,7 @@ def op_C7() {
 def op_C8() {
   if flag_get(FLAG_Z) {
     om_ret();
-    IT += 12;
+    CYCLES += 12;
   }
 }
 
@@ -2024,7 +2608,7 @@ def op_CA() {
   let nn = mmu_next16();
   if flag_get(FLAG_Z) {
     om_jp(nn);
-    IT += 4;
+    CYCLES += 4;
   }
 }
 
@@ -2033,9 +2617,17 @@ def op_CB() {
   // Get next opcode
   let opcode = mmu_next8();
 
-  // Not implemented yet
-  printf("error: unknown opcode: $CB $%02X\n", opcode);
-  exit(-1);
+  // Check if valid/known instruction
+  if *((optable_CB as *int64) + opcode) == 0 {
+    printf("error: unknown opcode: $CB $%02X\n", opcode);
+    exit(-1);
+  }
+
+  // Set instruction time to the base/min
+  CYCLES = *(cycletable_CB + opcode);
+
+  // Execute instruction
+  (*(optable_CB + opcode))();
 }
 
 // [CC] CALL Z, nn
@@ -2043,7 +2635,7 @@ def op_CC() {
   let nn = mmu_next16();
   if flag_get(FLAG_Z) {
     om_call(nn);
-    IT += 12;
+    CYCLES += 12;
   }
 }
 
@@ -2062,9 +2654,87 @@ def op_CF() {
   om_jp(0x08);
 }
 
+// [D0] RET NC
+def op_D0() {
+  if not flag_get(FLAG_C) {
+    om_ret();
+    CYCLES += 12;
+  }
+}
+
+// [D1] POP DE
+def op_D1() {
+  om_pop16(&DE);
+}
+
+// [D2] JP NC, u16
+def op_D2() {
+  let address = mmu_next16();
+  if not flag_get(FLAG_C) {
+    om_jp(address);
+    CYCLES += 4;
+  }
+}
+
+// [D4] CALL NC, u16
+def op_D4() {
+  let address = mmu_next16();
+  if not flag_get(FLAG_C) {
+    om_call(address);
+    CYCLES += 12;
+  }
+}
+
 // [D5] PUSH DE
 def op_D5() {
   om_push16(&DE);
+}
+
+// [D6] SUB A, u8
+def op_D6() {
+  *A = om_sub8(*A, mmu_next8());
+}
+
+// [D7] RST $10
+def op_D7() {
+  om_jp(0x10);
+}
+
+// [D8] RET C
+def op_D8() {
+  if flag_get(FLAG_C) {
+    om_ret();
+    CYCLES += 12;
+  }
+}
+
+// [D9] RETI
+def op_D9() {
+  om_ret();
+  IME = true;
+}
+
+// [DA] JP C, u16
+def op_DA() {
+  let address = mmu_next16();
+  if flag_get(FLAG_C) {
+    om_jp(address);
+    CYCLES += 4;
+  }
+}
+
+// [DC] CALL C, u16
+def op_DC() {
+  let address = mmu_next16();
+  if flag_get(FLAG_C) {
+    om_call(address);
+    CYCLES += 12;
+  }
+}
+
+// [DE] SBC A, u8
+def op_DE() {
+  *A = om_sbc8(*A, mmu_next8());
 }
 
 // [DF] RST $18
@@ -2102,9 +2772,17 @@ def op_E7() {
   om_jp(0x20);
 }
 
-// [E8] ADD SP, n
+// [E8] ADD SP, i8
 def op_E8() {
-  SP = om_add16(SP, uint16(mmu_next8()));
+  let n = int16(int8(mmu_next8()));
+  let r = uint16(int16(SP) + n);
+
+  flag_set(FLAG_C, (r & 0xFF) < (SP & 0xFF));
+  flag_set(FLAG_H, (r & 0xF) < (SP & 0xF));
+  flag_set(FLAG_Z, false);
+  flag_set(FLAG_N, false);
+
+  SP = r;
 }
 
 // [E9] JP (HL)
@@ -2135,6 +2813,9 @@ def op_F0() {
 // [F1] POP AF
 def op_F1() {
   om_pop16(&AF);
+
+  // NOTE: The F register can only ever have the top 4 bits set
+  *F &= 0xF0;
 }
 
 // [F2] LD A, ($FF00 + C)
@@ -2162,10 +2843,21 @@ def op_F7() {
   om_jp(0x30);
 }
 
-// TODO: [F8] LD HL, SP +/- n
+// [F8] LD HL, SP + i8
+def op_F8() {
+  let n = int16(int8(mmu_next8()));
+  let r = uint16(int16(SP) + n);
+
+  flag_set(FLAG_C, (r & 0xFF) < (SP & 0xFF));
+  flag_set(FLAG_H, (r & 0xF) < (SP & 0xF));
+  flag_set(FLAG_Z, false);
+  flag_set(FLAG_N, false);
+
+  HL = r;
+}
 
 // [F9] LD SP, HL
-def op_F8() {
+def op_F9() {
   SP = HL;
 }
 
@@ -2187,6 +2879,1286 @@ def op_FE() {
 // [FF] RST $38
 def op_FF() {
   om_jp(0x38);
+}
+
+// [CB 00] RLC B
+def op_CB_00() {
+  *B = om_rotl8(*B, true);
+}
+
+// [CB 01] RLC C
+def op_CB_01() {
+  *C = om_rotl8(*C, true);
+}
+
+// [CB 02] RLC D
+def op_CB_02() {
+  *D = om_rotl8(*D, true);
+}
+
+// [CB 03] RLC E
+def op_CB_03() {
+  *E = om_rotl8(*E, true);
+}
+
+// [CB 04] RLC H
+def op_CB_04() {
+  *H = om_rotl8(*H, true);
+}
+
+// [CB 05] RLC L
+def op_CB_05() {
+  *L = om_rotl8(*L, true);
+}
+
+// [CB 06] RLC (HL)
+def op_CB_06() {
+  mmu_write8(HL, om_rotl8(mmu_read8(HL), true));
+}
+
+// [CB 07] RLC A
+def op_CB_07() {
+  *A = om_rotl8(*A, true);
+}
+
+// [CB 08] RRC B
+def op_CB_08() {
+  *B = om_rotr8(*B, true);
+}
+
+// [CB 09] RRC C
+def op_CB_09() {
+  *C = om_rotr8(*C, true);
+}
+
+// [CB 0A] RRC D
+def op_CB_0A() {
+  *D = om_rotr8(*D, true);
+}
+
+// [CB 0B] RRC E
+def op_CB_0B() {
+  *E = om_rotr8(*E, true);
+}
+
+// [CB 0C] RRC H
+def op_CB_0C() {
+  *H = om_rotr8(*H, true);
+}
+
+// [CB 0D] RRC L
+def op_CB_0D() {
+  *L = om_rotr8(*L, true);
+}
+
+// [CB 0E] RRC (HL)
+def op_CB_0E() {
+  mmu_write8(HL, om_rotr8(mmu_read8(HL), true));
+}
+
+// [CB 0F] RRC A
+def op_CB_0F() {
+  *A = om_rotr8(*A, true);
+}
+
+// [CB 10] RL B
+def op_CB_10() {
+  *B = om_rotl8(*B, false);
+}
+
+// [CB 11] RL C
+def op_CB_11() {
+  *C = om_rotl8(*C, false);
+}
+
+// [CB 12] RL D
+def op_CB_12() {
+  *D = om_rotl8(*D, false);
+}
+
+// [CB 13] RL E
+def op_CB_13() {
+  *E = om_rotl8(*E, false);
+}
+
+// [CB 14] RL H
+def op_CB_14() {
+  *H = om_rotl8(*H, false);
+}
+
+// [CB 15] RL L
+def op_CB_15() {
+  *L = om_rotl8(*L, false);
+}
+
+// [CB 16] RL (HL)
+def op_CB_16() {
+  mmu_write8(HL, om_rotl8(mmu_read8(HL), false));
+}
+
+// [CB 17] RL A
+def op_CB_17() {
+  *A = om_rotl8(*A, false);
+}
+
+// [CB 18] RR B
+def op_CB_18() {
+  *B = om_rotr8(*B, false);
+}
+
+// [CB 19] RR C
+def op_CB_19() {
+  *C = om_rotr8(*C, false);
+}
+
+// [CB 1A] RR D
+def op_CB_1A() {
+  *D = om_rotr8(*D, false);
+}
+
+// [CB 1B] RR E
+def op_CB_1B() {
+  *E = om_rotr8(*E, false);
+}
+
+// [CB 1C] RR H
+def op_CB_1C() {
+  *H = om_rotr8(*H, false);
+}
+
+// [CB 1D] RR L
+def op_CB_1D() {
+  *L = om_rotr8(*L, false);
+}
+
+// [CB 1E] RR (HL)
+def op_CB_1E() {
+  mmu_write8(HL, om_rotr8(mmu_read8(HL), false));
+}
+
+// [CB 1F] RR A
+def op_CB_1F() {
+  *A = om_rotr8(*A, false);
+}
+
+// [CB 20] SLA B
+def op_CB_20() {
+  *B = om_shl(*B);
+}
+
+// [CB 21] SLA C
+def op_CB_21() {
+  *C = om_shl(*C);
+}
+
+// [CB 22] SLA D
+def op_CB_22() {
+  *D = om_shl(*D);
+}
+
+// [CB 23] SLA E
+def op_CB_23() {
+  *E = om_shl(*E);
+}
+
+// [CB 24] SLA H
+def op_CB_24() {
+  *H = om_shl(*H);
+}
+
+// [CB 25] SLA L
+def op_CB_25() {
+  *L = om_shl(*L);
+}
+
+// [CB 26] SLA (HL)
+def op_CB_26() {
+  mmu_write8(HL, om_shl(mmu_read8(HL)));
+}
+
+// [CB 27] SLA A
+def op_CB_27() {
+  *A = om_shl(*A);
+}
+
+// [CB 28] SRA B
+def op_CB_28() {
+  *B = om_shr(*B, true);
+}
+
+// [CB 29] SRA C
+def op_CB_29() {
+  *C = om_shr(*C, true);
+}
+
+// [CB 2A] SRA D
+def op_CB_2A() {
+  *D = om_shr(*D, true);
+}
+
+// [CB 2B] SRA E
+def op_CB_2B() {
+  *E = om_shr(*E, true);
+}
+
+// [CB 2C] SRA H
+def op_CB_2C() {
+  *H = om_shr(*H, true);
+}
+
+// [CB 2D] SRA L
+def op_CB_2D() {
+  *L = om_shr(*L, true);
+}
+
+// [CB 2E] SRA (HL)
+def op_CB_2E() {
+  mmu_write8(HL, om_shr(mmu_read8(HL), true));
+}
+
+// [CB 2F] SRA A
+def op_CB_2F() {
+  *A = om_shr(*A, true);
+}
+
+// [CB 30] SWAP B
+def op_CB_30() {
+  *B = om_swap8(*B);
+}
+
+// [CB 31] SWAP C
+def op_CB_31() {
+  *C = om_swap8(*C);
+}
+
+// [CB 32] SWAP D
+def op_CB_32() {
+  *D = om_swap8(*D);
+}
+
+// [CB 33] SWAP E
+def op_CB_33() {
+  *E = om_swap8(*E);
+}
+
+// [CB 34] SWAP H
+def op_CB_34() {
+  *H = om_swap8(*H);
+}
+
+// [CB 35] SWAP L
+def op_CB_35() {
+  *L = om_swap8(*L);
+}
+
+// [CB 36] SWAP (HL)
+def op_CB_36() {
+  mmu_write8(HL, om_swap8(mmu_read8(HL)));
+}
+
+// [CB 37] SWAP A
+def op_CB_37() {
+  *A = om_swap8(*A);
+}
+
+// [CB 38] SRL B
+def op_CB_38() {
+  *B = om_shr(*B, false);
+}
+
+// [CB 39] SRL C
+def op_CB_39() {
+  *C = om_shr(*C, false);
+}
+
+// [CB 3A] SRL D
+def op_CB_3A() {
+  *D = om_shr(*D, false);
+}
+
+// [CB 3B] SRL E
+def op_CB_3B() {
+  *E = om_shr(*E, false);
+}
+
+// [CB 3C] SRL H
+def op_CB_3C() {
+  *H = om_shr(*H, false);
+}
+
+// [CB 3D] SRL L
+def op_CB_3D() {
+  *L = om_shr(*L, false);
+}
+
+// [CB 3E] SRL (HL)
+def op_CB_3E() {
+  mmu_write8(HL, om_shr(mmu_read8(HL), false));
+}
+
+// [CB 3F] SRL A
+def op_CB_3F() {
+  *A = om_shr(*A, false);
+}
+
+// [CB 40] BIT 0, B
+def op_CB_40() {
+  om_bit8(*B, 0);
+}
+
+// [CB 41] BIT 0, C
+def op_CB_41() {
+  om_bit8(*C, 0);
+}
+
+// [CB 42] BIT 0, D
+def op_CB_42() {
+  om_bit8(*D, 0);
+}
+
+// [CB 43] BIT 0, E
+def op_CB_43() {
+  om_bit8(*E, 0);
+}
+
+// [CB 44] BIT 0, H
+def op_CB_44() {
+  om_bit8(*H, 0);
+}
+
+// [CB 45] BIT 0, L
+def op_CB_45() {
+  om_bit8(*L, 0);
+}
+
+// [CB 46] BIT 0, (HL)
+def op_CB_46() {
+  om_bit8(mmu_read8(HL), 0);
+}
+
+// [CB 47] BIT 0, A
+def op_CB_47() {
+  om_bit8(*A, 0);
+}
+
+// [CB 48] BIT 1, B
+def op_CB_48() {
+  om_bit8(*B, 1);
+}
+
+// [CB 49] BIT 1, C
+def op_CB_49() {
+  om_bit8(*C, 1);
+}
+
+// [CB 4A] BIT 1, D
+def op_CB_4A() {
+  om_bit8(*D, 1);
+}
+
+// [CB 4B] BIT 1, E
+def op_CB_4B() {
+  om_bit8(*E, 1);
+}
+
+// [CB 4C] BIT 1, H
+def op_CB_4C() {
+  om_bit8(*H, 1);
+}
+
+// [CB 4D] BIT 1, L
+def op_CB_4D() {
+  om_bit8(*L, 1);
+}
+
+// [CB 4E] BIT 1, (HL)
+def op_CB_4E() {
+  om_bit8(mmu_read8(HL), 1);
+}
+
+// [CB 4F] BIT 1, A
+def op_CB_4F() {
+  om_bit8(*A, 1);
+}
+
+// [CB 50] BIT 2, B
+def op_CB_50() {
+  om_bit8(*B, 2);
+}
+
+// [CB 51] BIT 2, C
+def op_CB_51() {
+  om_bit8(*C, 2);
+}
+
+// [CB 52] BIT 2, D
+def op_CB_52() {
+  om_bit8(*D, 2);
+}
+
+// [CB 53] BIT 2, E
+def op_CB_53() {
+  om_bit8(*E, 2);
+}
+
+// [CB 54] BIT 2, H
+def op_CB_54() {
+  om_bit8(*H, 2);
+}
+
+// [CB 55] BIT 2, L
+def op_CB_55() {
+  om_bit8(*L, 2);
+}
+
+// [CB 56] BIT 2, (HL)
+def op_CB_56() {
+  om_bit8(mmu_read8(HL), 2);
+}
+
+// [CB 57] BIT 2, A
+def op_CB_57() {
+  om_bit8(*A, 2);
+}
+
+// [CB 58] BIT 3, B
+def op_CB_58() {
+  om_bit8(*B, 3);
+}
+
+// [CB 59] BIT 3, C
+def op_CB_59() {
+  om_bit8(*C, 3);
+}
+
+// [CB 5A] BIT 3, D
+def op_CB_5A() {
+  om_bit8(*D, 3);
+}
+
+// [CB 5B] BIT 3, E
+def op_CB_5B() {
+  om_bit8(*E, 3);
+}
+
+// [CB 5C] BIT 3, H
+def op_CB_5C() {
+  om_bit8(*H, 3);
+}
+
+// [CB 5D] BIT 3, L
+def op_CB_5D() {
+  om_bit8(*L, 3);
+}
+
+// [CB 5E] BIT 3, (HL)
+def op_CB_5E() {
+  om_bit8(mmu_read8(HL), 3);
+}
+
+// [CB 5F] BIT 3, A
+def op_CB_5F() {
+  om_bit8(*A, 3);
+}
+
+// [CB 60] BIT 4, B
+def op_CB_60() {
+  om_bit8(*B, 4);
+}
+
+// [CB 61] BIT 4, C
+def op_CB_61() {
+  om_bit8(*C, 4);
+}
+
+// [CB 62] BIT 4, D
+def op_CB_62() {
+  om_bit8(*D, 4);
+}
+
+// [CB 63] BIT 4, E
+def op_CB_63() {
+  om_bit8(*E, 4);
+}
+
+// [CB 64] BIT 4, H
+def op_CB_64() {
+  om_bit8(*H, 4);
+}
+
+// [CB 65] BIT 4, L
+def op_CB_65() {
+  om_bit8(*L, 4);
+}
+
+// [CB 66] BIT 4, (HL)
+def op_CB_66() {
+  om_bit8(mmu_read8(HL), 4);
+}
+
+// [CB 67] BIT 4, A
+def op_CB_67() {
+  om_bit8(*A, 4);
+}
+
+// [CB 68] BIT 5, B
+def op_CB_68() {
+  om_bit8(*B, 5);
+}
+
+// [CB 69] BIT 5, C
+def op_CB_69() {
+  om_bit8(*C, 5);
+}
+
+// [CB 6A] BIT 5, D
+def op_CB_6A() {
+  om_bit8(*D, 5);
+}
+
+// [CB 6B] BIT 5, E
+def op_CB_6B() {
+  om_bit8(*E, 5);
+}
+
+// [CB 6C] BIT 5, H
+def op_CB_6C() {
+  om_bit8(*H, 5);
+}
+
+// [CB 6D] BIT 5, L
+def op_CB_6D() {
+  om_bit8(*L, 5);
+}
+
+// [CB 6E] BIT 5, (HL)
+def op_CB_6E() {
+  om_bit8(mmu_read8(HL), 5);
+}
+
+// [CB 6F] BIT 5, A
+def op_CB_6F() {
+  om_bit8(*A, 5);
+}
+
+// [CB 70] BIT 6, B
+def op_CB_70() {
+  om_bit8(*B, 6);
+}
+
+// [CB 71] BIT 6, C
+def op_CB_71() {
+  om_bit8(*C, 6);
+}
+
+// [CB 72] BIT 6, D
+def op_CB_72() {
+  om_bit8(*D, 6);
+}
+
+// [CB 73] BIT 6, E
+def op_CB_73() {
+  om_bit8(*E, 6);
+}
+
+// [CB 74] BIT 6, H
+def op_CB_74() {
+  om_bit8(*H, 6);
+}
+
+// [CB 75] BIT 6, L
+def op_CB_75() {
+  om_bit8(*L, 6);
+}
+
+// [CB 76] BIT 6, (HL)
+def op_CB_76() {
+  om_bit8(mmu_read8(HL), 6);
+}
+
+// [CB 77] BIT 6, A
+def op_CB_77() {
+  om_bit8(*A, 6);
+}
+
+// [CB 78] BIT 7, B
+def op_CB_78() {
+  om_bit8(*B, 7);
+}
+
+// [CB 79] BIT 7, C
+def op_CB_79() {
+  om_bit8(*C, 7);
+}
+
+// [CB 7A] BIT 7, D
+def op_CB_7A() {
+  om_bit8(*D, 7);
+}
+
+// [CB 7B] BIT 7, E
+def op_CB_7B() {
+  om_bit8(*E, 7);
+}
+
+// [CB 7C] BIT 7, H
+def op_CB_7C() {
+  om_bit8(*H, 7);
+}
+
+// [CB 7D] BIT 7, L
+def op_CB_7D() {
+  om_bit8(*L, 7);
+}
+
+// [CB 7E] BIT 7, (HL)
+def op_CB_7E() {
+  om_bit8(mmu_read8(HL), 7);
+}
+
+// [CB 7F] BIT 7, A
+def op_CB_7F() {
+  om_bit8(*A, 7);
+}
+
+// [CB 80] RES 0, B
+def op_CB_80() {
+  *B = om_res8(*B, 0);
+}
+
+// [CB 81] RES 0, C
+def op_CB_81() {
+  *C = om_res8(*C, 0);
+}
+
+// [CB 82] RES 0, D
+def op_CB_82() {
+  *D = om_res8(*D, 0);
+}
+
+// [CB 83] RES 0, E
+def op_CB_83() {
+  *E = om_res8(*E, 0);
+}
+
+// [CB 84] RES 0, H
+def op_CB_84() {
+  *H = om_res8(*H, 0);
+}
+
+// [CB 85] RES 0, L
+def op_CB_85() {
+  *L = om_res8(*L, 0);
+}
+
+// [CB 86] RES 0, (HL)
+def op_CB_86() {
+  mmu_write8(HL, om_res8(mmu_read8(HL), 0));
+}
+
+// [CB 87] RES 0, A
+def op_CB_87() {
+  *A = om_res8(*A, 0);
+}
+
+// [CB 88] RES 1, B
+def op_CB_88() {
+  *B = om_res8(*B, 1);
+}
+
+// [CB 89] RES 1, C
+def op_CB_89() {
+  *C = om_res8(*C, 1);
+}
+
+// [CB 8A] RES 1, D
+def op_CB_8A() {
+  *D = om_res8(*D, 1);
+}
+
+// [CB 8B] RES 1, E
+def op_CB_8B() {
+  *E = om_res8(*E, 1);
+}
+
+// [CB 8C] RES 1, H
+def op_CB_8C() {
+  *H = om_res8(*H, 1);
+}
+
+// [CB 8D] RES 1, L
+def op_CB_8D() {
+  *L = om_res8(*L, 1);
+}
+
+// [CB 8E] RES 1, (HL)
+def op_CB_8E() {
+  mmu_write8(HL, om_res8(mmu_read8(HL), 1));
+}
+
+// [CB 8F] RES 1, A
+def op_CB_8F() {
+  *A = om_res8(*A, 1);
+}
+
+// [CB 90] RES 2, B
+def op_CB_90() {
+  *B = om_res8(*B, 2);
+}
+
+// [CB 91] RES 2, C
+def op_CB_91() {
+  *C = om_res8(*C, 2);
+}
+
+// [CB 92] RES 2, D
+def op_CB_92() {
+  *D = om_res8(*D, 2);
+}
+
+// [CB 93] RES 2, E
+def op_CB_93() {
+  *E = om_res8(*E, 2);
+}
+
+// [CB 94] RES 2, H
+def op_CB_94() {
+  *H = om_res8(*H, 2);
+}
+
+// [CB 95] RES 2, L
+def op_CB_95() {
+  *L = om_res8(*L, 2);
+}
+
+// [CB 96] RES 2, (HL)
+def op_CB_96() {
+  mmu_write8(HL, om_res8(mmu_read8(HL), 2));
+}
+
+// [CB 97] RES 2, A
+def op_CB_97() {
+  *A = om_res8(*A, 2);
+}
+
+// [CB 98] RES 3, B
+def op_CB_98() {
+  *B = om_res8(*B, 3);
+}
+
+// [CB 99] RES 3, C
+def op_CB_99() {
+  *C = om_res8(*C, 3);
+}
+
+// [CB 9A] RES 3, D
+def op_CB_9A() {
+  *D = om_res8(*D, 3);
+}
+
+// [CB 9B] RES 3, E
+def op_CB_9B() {
+  *E = om_res8(*E, 3);
+}
+
+// [CB 9C] RES 3, H
+def op_CB_9C() {
+  *H = om_res8(*H, 3);
+}
+
+// [CB 9D] RES 3, L
+def op_CB_9D() {
+  *L = om_res8(*L, 3);
+}
+
+// [CB 9E] RES 3, (HL)
+def op_CB_9E() {
+  mmu_write8(HL, om_res8(mmu_read8(HL), 3));
+}
+
+// [CB 9F] RES 3, A
+def op_CB_9F() {
+  *A = om_res8(*A, 3);
+}
+
+// [CB A0] RES 4, B
+def op_CB_A0() {
+  *B = om_res8(*B, 4);
+}
+
+// [CB A1] RES 4, C
+def op_CB_A1() {
+  *C = om_res8(*C, 4);
+}
+
+// [CB A2] RES 4, D
+def op_CB_A2() {
+  *D = om_res8(*D, 4);
+}
+
+// [CB A3] RES 4, E
+def op_CB_A3() {
+  *E = om_res8(*E, 4);
+}
+
+// [CB A4] RES 4, H
+def op_CB_A4() {
+  *H = om_res8(*H, 4);
+}
+
+// [CB A5] RES 4, L
+def op_CB_A5() {
+  *L = om_res8(*L, 4);
+}
+
+// [CB A6] RES 4, (HL)
+def op_CB_A6() {
+  mmu_write8(HL, om_res8(mmu_read8(HL), 4));
+}
+
+// [CB A7] RES 4, A
+def op_CB_A7() {
+  *A = om_res8(*A, 4);
+}
+
+// [CB A8] RES 5, B
+def op_CB_A8() {
+  *B = om_res8(*B, 5);
+}
+
+// [CB A9] RES 5, C
+def op_CB_A9() {
+  *C = om_res8(*C, 5);
+}
+
+// [CB AA] RES 5, D
+def op_CB_AA() {
+  *D = om_res8(*D, 5);
+}
+
+// [CB AB] RES 5, E
+def op_CB_AB() {
+  *E = om_res8(*E, 5);
+}
+
+// [CB AC] RES 5, H
+def op_CB_AC() {
+  *H = om_res8(*H, 5);
+}
+
+// [CB AD] RES 5, L
+def op_CB_AD() {
+  *L = om_res8(*L, 5);
+}
+
+// [CB AE] RES 5, (HL)
+def op_CB_AE() {
+  mmu_write8(HL, om_res8(mmu_read8(HL), 5));
+}
+
+// [CB AF] RES 5, A
+def op_CB_AF() {
+  *A = om_res8(*A, 5);
+}
+
+// [CB B0] RES 6, B
+def op_CB_B0() {
+  *B = om_res8(*B, 6);
+}
+
+// [CB B1] RES 6, C
+def op_CB_B1() {
+  *C = om_res8(*C, 6);
+}
+
+// [CB B2] RES 6, D
+def op_CB_B2() {
+  *D = om_res8(*D, 6);
+}
+
+// [CB B3] RES 6, E
+def op_CB_B3() {
+  *E = om_res8(*E, 6);
+}
+
+// [CB B4] RES 6, H
+def op_CB_B4() {
+  *H = om_res8(*H, 6);
+}
+
+// [CB B5] RES 6, L
+def op_CB_B5() {
+  *L = om_res8(*L, 6);
+}
+
+// [CB B6] RES 6, (HL)
+def op_CB_B6() {
+  mmu_write8(HL, om_res8(mmu_read8(HL), 6));
+}
+
+// [CB B7] RES 6, A
+def op_CB_B7() {
+  *A = om_res8(*A, 6);
+}
+
+// [CB B8] RES 7, B
+def op_CB_B8() {
+  *B = om_res8(*B, 7);
+}
+
+// [CB B9] RES 7, C
+def op_CB_B9() {
+  *C = om_res8(*C, 7);
+}
+
+// [CB BA] RES 7, D
+def op_CB_BA() {
+  *D = om_res8(*D, 7);
+}
+
+// [CB BB] RES 7, E
+def op_CB_BB() {
+  *E = om_res8(*E, 7);
+}
+
+// [CB BC] RES 7, H
+def op_CB_BC() {
+  *H = om_res8(*H, 7);
+}
+
+// [CB BD] RES 7, L
+def op_CB_BD() {
+  *L = om_res8(*L, 7);
+}
+
+// [CB BE] RES 7, (HL)
+def op_CB_BE() {
+  mmu_write8(HL, om_res8(mmu_read8(HL), 7));
+}
+
+// [CB BF] RES 7, A
+def op_CB_BF() {
+  *A = om_res8(*A, 7);
+}
+
+// [CB C0] SET 0, B
+def op_CB_C0() {
+  *B = om_set8(*B, 0);
+}
+
+// [CB C1] SET 0, C
+def op_CB_C1() {
+  *C = om_set8(*C, 0);
+}
+
+// [CB C2] SET 0, D
+def op_CB_C2() {
+  *D = om_set8(*D, 0);
+}
+
+// [CB C3] SET 0, E
+def op_CB_C3() {
+  *E = om_set8(*E, 0);
+}
+
+// [CB C4] SET 0, H
+def op_CB_C4() {
+  *H = om_set8(*H, 0);
+}
+
+// [CB C5] SET 0, L
+def op_CB_C5() {
+  *L = om_set8(*L, 0);
+}
+
+// [CB C6] SET 0, (HL)
+def op_CB_C6() {
+  mmu_write8(HL, om_set8(mmu_read8(HL), 0));
+}
+
+// [CB C7] SET 0, A
+def op_CB_C7() {
+  *A = om_set8(*A, 0);
+}
+
+// [CB C8] SET 1, B
+def op_CB_C8() {
+  *B = om_set8(*B, 1);
+}
+
+// [CB C9] SET 1, C
+def op_CB_C9() {
+  *C = om_set8(*C, 1);
+}
+
+// [CB CA] SET 1, D
+def op_CB_CA() {
+  *D = om_set8(*D, 1);
+}
+
+// [CB CB] SET 1, E
+def op_CB_CB() {
+  *E = om_set8(*E, 1);
+}
+
+// [CB CC] SET 1, H
+def op_CB_CC() {
+  *H = om_set8(*H, 1);
+}
+
+// [CB CD] SET 1, L
+def op_CB_CD() {
+  *L = om_set8(*L, 1);
+}
+
+// [CB CE] SET 1, (HL)
+def op_CB_CE() {
+  mmu_write8(HL, om_set8(mmu_read8(HL), 1));
+}
+
+// [CB CF] SET 1, A
+def op_CB_CF() {
+  *A = om_set8(*A, 1);
+}
+
+// [CB D0] SET 2, B
+def op_CB_D0() {
+  *B = om_set8(*B, 2);
+}
+
+// [CB D1] SET 2, C
+def op_CB_D1() {
+  *C = om_set8(*C, 2);
+}
+
+// [CB D2] SET 2, D
+def op_CB_D2() {
+  *D = om_set8(*D, 2);
+}
+
+// [CB D3] SET 2, E
+def op_CB_D3() {
+  *E = om_set8(*E, 2);
+}
+
+// [CB D4] SET 2, H
+def op_CB_D4() {
+  *H = om_set8(*H, 2);
+}
+
+// [CB D5] SET 2, L
+def op_CB_D5() {
+  *L = om_set8(*L, 2);
+}
+
+// [CB D6] SET 2, (HL)
+def op_CB_D6() {
+  mmu_write8(HL, om_set8(mmu_read8(HL), 2));
+}
+
+// [CB D7] SET 2, A
+def op_CB_D7() {
+  *A = om_set8(*A, 2);
+}
+
+// [CB D8] SET 3, B
+def op_CB_D8() {
+  *B = om_set8(*B, 3);
+}
+
+// [CB D9] SET 3, C
+def op_CB_D9() {
+  *C = om_set8(*C, 3);
+}
+
+// [CB DA] SET 3, D
+def op_CB_DA() {
+  *D = om_set8(*D, 3);
+}
+
+// [CB DB] SET 3, E
+def op_CB_DB() {
+  *E = om_set8(*E, 3);
+}
+
+// [CB DC] SET 3, H
+def op_CB_DC() {
+  *H = om_set8(*H, 3);
+}
+
+// [CB DD] SET 3, L
+def op_CB_DD() {
+  *L = om_set8(*L, 3);
+}
+
+// [CB DE] SET 3, (HL)
+def op_CB_DE() {
+  mmu_write8(HL, om_set8(mmu_read8(HL), 3));
+}
+
+// [CB DF] SET 3, A
+def op_CB_DF() {
+  *A = om_set8(*A, 3);
+}
+
+// [CB E0] SET 4, B
+def op_CB_E0() {
+  *B = om_set8(*B, 4);
+}
+
+// [CB E1] SET 4, C
+def op_CB_E1() {
+  *C = om_set8(*C, 4);
+}
+
+// [CB E2] SET 4, D
+def op_CB_E2() {
+  *D = om_set8(*D, 4);
+}
+
+// [CB E3] SET 4, E
+def op_CB_E3() {
+  *E = om_set8(*E, 4);
+}
+
+// [CB E4] SET 4, H
+def op_CB_E4() {
+  *H = om_set8(*H, 4);
+}
+
+// [CB E5] SET 4, L
+def op_CB_E5() {
+  *L = om_set8(*L, 4);
+}
+
+// [CB E6] SET 4, (HL)
+def op_CB_E6() {
+  mmu_write8(HL, om_set8(mmu_read8(HL), 4));
+}
+
+// [CB E7] SET 4, A
+def op_CB_E7() {
+  *A = om_set8(*A, 4);
+}
+
+// [CB E8] SET 5, B
+def op_CB_E8() {
+  *B = om_set8(*B, 5);
+}
+
+// [CB E9] SET 5, C
+def op_CB_E9() {
+  *C = om_set8(*C, 5);
+}
+
+// [CB EA] SET 5, D
+def op_CB_EA() {
+  *D = om_set8(*D, 5);
+}
+
+// [CB EB] SET 5, E
+def op_CB_EB() {
+  *E = om_set8(*E, 5);
+}
+
+// [CB EC] SET 5, H
+def op_CB_EC() {
+  *H = om_set8(*H, 5);
+}
+
+// [CB ED] SET 5, L
+def op_CB_ED() {
+  *L = om_set8(*L, 5);
+}
+
+// [CB EE] SET 5, (HL)
+def op_CB_EE() {
+  mmu_write8(HL, om_set8(mmu_read8(HL), 5));
+}
+
+// [CB EF] SET 5, A
+def op_CB_EF() {
+  *A = om_set8(*A, 5);
+}
+
+// [CB F0] SET 6, B
+def op_CB_F0() {
+  *B = om_set8(*B, 6);
+}
+
+// [CB F1] SET 6, C
+def op_CB_F1() {
+  *C = om_set8(*C, 6);
+}
+
+// [CB F2] SET 6, D
+def op_CB_F2() {
+  *D = om_set8(*D, 6);
+}
+
+// [CB F3] SET 6, E
+def op_CB_F3() {
+  *E = om_set8(*E, 6);
+}
+
+// [CB F4] SET 6, H
+def op_CB_F4() {
+  *H = om_set8(*H, 6);
+}
+
+// [CB F5] SET 6, L
+def op_CB_F5() {
+  *L = om_set8(*L, 6);
+}
+
+// [CB F6] SET 6, (HL)
+def op_CB_F6() {
+  mmu_write8(HL, om_set8(mmu_read8(HL), 6));
+}
+
+// [CB F7] SET 6, A
+def op_CB_F7() {
+  *A = om_set8(*A, 6);
+}
+
+// [CB F8] SET 7, B
+def op_CB_F8() {
+  *B = om_set8(*B, 7);
+}
+
+// [CB F9] SET 7, C
+def op_CB_F9() {
+  *C = om_set8(*C, 7);
+}
+
+// [CB FA] SET 7, D
+def op_CB_FA() {
+  *D = om_set8(*D, 7);
+}
+
+// [CB FB] SET 7, E
+def op_CB_FB() {
+  *E = om_set8(*E, 7);
+}
+
+// [CB FC] SET 7, H
+def op_CB_FC() {
+  *H = om_set8(*H, 7);
+}
+
+// [CB FD] SET 7, L
+def op_CB_FD() {
+  *L = om_set8(*L, 7);
+}
+
+// [CB FE] SET 7, (HL)
+def op_CB_FE() {
+  mmu_write8(HL, om_set8(mmu_read8(HL), 7));
+}
+
+// [CB FF] SET 7, A
+def op_CB_FF() {
+  *A = om_set8(*A, 7);
 }
 
 // =============================================================================
@@ -2213,6 +4185,7 @@ def cpu_reset() {
   PC = 0x0100;
   SP = 0xFFFE;
   IME = true;
+  HALT = false;
 
   // CPU registers
   AF = 0x01B0;
@@ -2221,7 +4194,7 @@ def cpu_reset() {
   HL = 0x014D;
 
   // (Last) Instruction Time (in cycles)
-  IT = 0;
+  CYCLES = 0;
 
   // mmu_write8(0xFF05, 0x00);
   // mmu_write8(0xFF06, 0x00);
@@ -2254,10 +4227,15 @@ def cpu_reset() {
   // mmu_write8(0xFF49, 0xFF);
   // mmu_write8(0xFF4A, 0x00);
   // mmu_write8(0xFF4B, 0x00);
-  // mmu_write8(0xFFFF, 0x00);
+  mmu_write8(0xFFFF, 0x00);
 }
 
 def cpu_step(): uint8 {
+  // IF HALT; just return 4 (cycles)
+  if HALT {
+    return 4;
+  }
+
   // Get next opcode
   let opcode = mmu_next8();
 
@@ -2268,7 +4246,7 @@ def cpu_step(): uint8 {
   }
 
   // Set instruction time to the base/min
-  IT = *(cycletable + opcode);
+  CYCLES = *(cycletable + opcode);
 
   // Execute instruction
   (*(optable + opcode))();
@@ -2277,15 +4255,15 @@ def cpu_step(): uint8 {
   // TODO: Better debug information
   // printf("debug: opcode: $%02X\n", opcode);
 
-  if PC == 0x282A {
-    let f = fopen("tile0.bin", "wb");
-    fwrite(vram, 16, 1, f);
-    fclose(f);
+  // if PC == 0x282A {
+  //   let f = fopen("tile0.bin", "wb");
+  //   fwrite(vram, 16, 1, f);
+  //   fclose(f);
+  //
+  //   exit(0);
+  // }
 
-    exit(0);
-  }
-
-  return IT;
+  return CYCLES;
 }
 
 // =============================================================================
@@ -2386,5 +4364,35 @@ def execute() {
 
     // STEP -> GPU
     gpu_step(cycles);
+
+    // STEP -> Interrupts
+    if IME and (IE > 0) and (IF > 0) {
+      SP -= 2;
+      mmu_write16(SP, PC);
+
+      if (IF & 0x01) != 0 and (IE & 0x01) != 0 {
+        // V-Blank
+        PC = 0x40;
+        IF &= ~0x01;
+      } else if (IF & 0x02) != 0 and (IE & 0x02) != 0 {
+        // LCD STAT
+        PC = 0x48;
+        IF &= ~0x02;
+      } else if (IF & 0x04) != 0 and (IE & 0x04) != 0 {
+        // Timer
+        PC = 0x50;
+        IF &= ~0x04;
+      } else if (IF & 0x08) != 0 and (IE & 0x08) != 0 {
+        // Serial
+        PC = 0x58;
+        IF &= ~0x08;
+      } else if (IF & 0x10) != 0 and (IE & 0x10) != 0 {
+        // Joypad
+        PC = 0x60;
+        IF &= ~0x10;
+      }
+
+      IME = false;
+    }
   }
 }
