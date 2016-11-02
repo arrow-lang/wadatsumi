@@ -4509,50 +4509,6 @@ def gpu_step(cycles: uint8) {
       }
     }
   }
-
-  // } else if gpu_mode == 3 {
-  //   // VRAM read mode, scanline active
-  //   // Treat end of mode 3 as end of scanline
-  //   if gpu_mode_clock >= 172 {
-  //     // Enter HBLANK
-  //     gpu_mode_clock = 0;
-  //     gpu_mode = 0;
-  //
-  //     // Render Scanline
-  //     gpu_render_scanline();
-  //   }
-  // } else if gpu_mode == 0 {
-  //   // HBLANK
-  //   // After the last hblank, render screen data
-  //   if gpu_mode_clock >= 204 {
-  //     gpu_mode_clock = 0;
-  //     gpu_line += 1;
-  //
-  //     if gpu_line == 144 {
-  //       // Enter VBLANK
-  //       gpu_mode = 1;
-  //
-  //       // Present rendered screen data
-  //       // sdl_render();
-  //       // TODO: gpu_present();
-  //     } else {
-  //       gpu_mode = 2;
-  //     }
-  //   }
-  // } else if gpu_mode == 1 {
-  //   // VBLANK
-  //   // VBLANK lasts for 10 lines
-  //   if gpu_mode_clock >= 456 {
-  //     gpu_mode_clock = 0;
-  //     gpu_line += 1;
-  //
-  //     if gpu_line > 153 {
-  //       // Restart scanning (back to the top)
-  //       gpu_mode = 2;
-  //       gpu_line = 0;
-  //     }
-  //   }
-  // }
 }
 
 def gpu_read(address: uint16): uint8 {
