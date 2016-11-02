@@ -85,13 +85,13 @@ def main() {
   // won't execute properly without MBC1 support, but the individual
   // Roms will work fine.
 
-  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/01-special.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/01-special.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/02-interrupts.gb");
 
   // PASS
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/03-op sp,hl.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/04-op r,imm.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
+  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/06-ld r,r.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/08-misc instrs.gb");
@@ -206,7 +206,7 @@ def mmu_read8(address: uint16): uint8 {
 
   // High RAM (HRAM): $FF80 – $FFFE
   if (address >= 0xFF80 and address <= 0xFFFE) {
-    return *(hram + ((address & 0xFE) - 0x80));
+    return *(hram + ((address & 0xFF) - 0x80));
   }
 
   // I/O Ports
@@ -300,7 +300,7 @@ def mmu_write8(address: uint16, value: uint8) {
 
   // High RAM (HRAM): $FF80 – $FFFE
   if (address >= 0xFF80 and address <= 0xFFFE) {
-    *(hram + ((address & 0xFE) - 0x80)) = value;
+    *(hram + ((address & 0xFF) - 0x80)) = value;
     return;
   }
 
@@ -326,7 +326,7 @@ def mmu_write8(address: uint16, value: uint8) {
     return;
   }
 
-  printf("warn: unhandled write to memory: $%04X ($%02X)\n", address, value);
+  // printf("warn: unhandled write to memory: $%04X ($%02X)\n", address, value);
   // exit(-1);
 }
 
@@ -1287,7 +1287,7 @@ def om_and8(a: uint8, b: uint8): uint8 {
 
 // Or 8-bit value
 def om_or8(a: uint8, b: uint8): uint8 {
-  let r = a & b;
+  let r = a | b;
 
   flag_set(FLAG_Z, r == 0);
   flag_set(FLAG_N, false);
@@ -1311,11 +1311,11 @@ def om_xor8(a: uint8, b: uint8): uint8 {
 
 // Add 8-bit value
 def om_add8(a: uint8, b: uint8): uint8 {
-  flag_set(FLAG_H, (((a & 0xF) + (b & 0xF)) & 0x10) > 0);
-
   let r = uint16(a) + uint16(b);
+  let carry = uint16(a) ^ uint16(b) ^ r;
 
-  flag_set(FLAG_C, r > 0xFFFF);
+  flag_set(FLAG_H, (carry & 0x10) != 0);
+  flag_set(FLAG_C, (carry & 0x100) != 0);
   flag_set(FLAG_Z, (r & 0xFF) == 0);
   flag_set(FLAG_N, false);
 
@@ -1645,24 +1645,9 @@ def op_1E() {
 }
 
 // [1F] RRA
-let tracelog: *FILE = 0 as *FILE;
 def op_1F() {
-  let tmp_A = *A;
-  let tmp_F = *F;
-
   *A = om_rotr8(*A, true);
   flag_set(FLAG_Z, false);
-
-  if tracelog == 0 as *FILE {
-    tracelog = fopen("tracelog", "w");
-  }
-
-  fprintf(tracelog, "RRA [%02X %02X] -> [%02X %02X]\n",
-    tmp_A, tmp_F,
-    *A, *F
-  );
-
-  fflush(tracelog);
 }
 
 // [20] JR NZ, n
@@ -2807,7 +2792,8 @@ def op_EF() {
 
 // [F0] LD A, ($FF00 + n)
 def op_F0() {
-  *A = mmu_read8(0xFF00 + uint16(mmu_next8()));
+  let n = uint16(mmu_next8());
+  *A = mmu_read8(0xFF00 + n);
 }
 
 // [F1] POP AF
@@ -2883,162 +2869,162 @@ def op_FF() {
 
 // [CB 00] RLC B
 def op_CB_00() {
-  *B = om_rotl8(*B, true);
+  *B = om_rotl8(*B, false);
 }
 
 // [CB 01] RLC C
 def op_CB_01() {
-  *C = om_rotl8(*C, true);
+  *C = om_rotl8(*C, false);
 }
 
 // [CB 02] RLC D
 def op_CB_02() {
-  *D = om_rotl8(*D, true);
+  *D = om_rotl8(*D, false);
 }
 
 // [CB 03] RLC E
 def op_CB_03() {
-  *E = om_rotl8(*E, true);
+  *E = om_rotl8(*E, false);
 }
 
 // [CB 04] RLC H
 def op_CB_04() {
-  *H = om_rotl8(*H, true);
+  *H = om_rotl8(*H, false);
 }
 
 // [CB 05] RLC L
 def op_CB_05() {
-  *L = om_rotl8(*L, true);
+  *L = om_rotl8(*L, false);
 }
 
 // [CB 06] RLC (HL)
 def op_CB_06() {
-  mmu_write8(HL, om_rotl8(mmu_read8(HL), true));
+  mmu_write8(HL, om_rotl8(mmu_read8(HL), false));
 }
 
 // [CB 07] RLC A
 def op_CB_07() {
-  *A = om_rotl8(*A, true);
+  *A = om_rotl8(*A, false);
 }
 
 // [CB 08] RRC B
 def op_CB_08() {
-  *B = om_rotr8(*B, true);
+  *B = om_rotr8(*B, false);
 }
 
 // [CB 09] RRC C
 def op_CB_09() {
-  *C = om_rotr8(*C, true);
+  *C = om_rotr8(*C, false);
 }
 
 // [CB 0A] RRC D
 def op_CB_0A() {
-  *D = om_rotr8(*D, true);
+  *D = om_rotr8(*D, false);
 }
 
 // [CB 0B] RRC E
 def op_CB_0B() {
-  *E = om_rotr8(*E, true);
+  *E = om_rotr8(*E, false);
 }
 
 // [CB 0C] RRC H
 def op_CB_0C() {
-  *H = om_rotr8(*H, true);
+  *H = om_rotr8(*H, false);
 }
 
 // [CB 0D] RRC L
 def op_CB_0D() {
-  *L = om_rotr8(*L, true);
+  *L = om_rotr8(*L, false);
 }
 
 // [CB 0E] RRC (HL)
 def op_CB_0E() {
-  mmu_write8(HL, om_rotr8(mmu_read8(HL), true));
+  mmu_write8(HL, om_rotr8(mmu_read8(HL), false));
 }
 
 // [CB 0F] RRC A
 def op_CB_0F() {
-  *A = om_rotr8(*A, true);
+  *A = om_rotr8(*A, false);
 }
 
 // [CB 10] RL B
 def op_CB_10() {
-  *B = om_rotl8(*B, false);
+  *B = om_rotl8(*B, true);
 }
 
 // [CB 11] RL C
 def op_CB_11() {
-  *C = om_rotl8(*C, false);
+  *C = om_rotl8(*C, true);
 }
 
 // [CB 12] RL D
 def op_CB_12() {
-  *D = om_rotl8(*D, false);
+  *D = om_rotl8(*D, true);
 }
 
 // [CB 13] RL E
 def op_CB_13() {
-  *E = om_rotl8(*E, false);
+  *E = om_rotl8(*E, true);
 }
 
 // [CB 14] RL H
 def op_CB_14() {
-  *H = om_rotl8(*H, false);
+  *H = om_rotl8(*H, true);
 }
 
 // [CB 15] RL L
 def op_CB_15() {
-  *L = om_rotl8(*L, false);
+  *L = om_rotl8(*L, true);
 }
 
 // [CB 16] RL (HL)
 def op_CB_16() {
-  mmu_write8(HL, om_rotl8(mmu_read8(HL), false));
+  mmu_write8(HL, om_rotl8(mmu_read8(HL), true));
 }
 
 // [CB 17] RL A
 def op_CB_17() {
-  *A = om_rotl8(*A, false);
+  *A = om_rotl8(*A, true);
 }
 
 // [CB 18] RR B
 def op_CB_18() {
-  *B = om_rotr8(*B, false);
+  *B = om_rotr8(*B, true);
 }
 
 // [CB 19] RR C
 def op_CB_19() {
-  *C = om_rotr8(*C, false);
+  *C = om_rotr8(*C, true);
 }
 
 // [CB 1A] RR D
 def op_CB_1A() {
-  *D = om_rotr8(*D, false);
+  *D = om_rotr8(*D, true);
 }
 
 // [CB 1B] RR E
 def op_CB_1B() {
-  *E = om_rotr8(*E, false);
+  *E = om_rotr8(*E, true);
 }
 
 // [CB 1C] RR H
 def op_CB_1C() {
-  *H = om_rotr8(*H, false);
+  *H = om_rotr8(*H, true);
 }
 
 // [CB 1D] RR L
 def op_CB_1D() {
-  *L = om_rotr8(*L, false);
+  *L = om_rotr8(*L, true);
 }
 
 // [CB 1E] RR (HL)
 def op_CB_1E() {
-  mmu_write8(HL, om_rotr8(mmu_read8(HL), false));
+  mmu_write8(HL, om_rotr8(mmu_read8(HL), true));
 }
 
 // [CB 1F] RR A
 def op_CB_1F() {
-  *A = om_rotr8(*A, false);
+  *A = om_rotr8(*A, true);
 }
 
 // [CB 20] SLA B
@@ -4247,6 +4233,21 @@ def cpu_step(): uint8 {
 
   // Set instruction time to the base/min
   CYCLES = *(cycletable + opcode);
+
+  // printf("[$%04X ~ $%02X] <- AF=%02X%02X BC=%02X%02X DE=%02X%02X HL=%02X%02X SP=%04X\n",
+  //   PC, opcode,
+  //   *A, *F,
+  //   *B, *C,
+  //   *D, *E,
+  //   *H, *L,
+  //   SP
+  // );
+
+  // if (opcode == 0xCB) {
+  //   printf("\tCB => %02X\n", mmu_read8(PC));
+  // }
+
+  // C06D
 
   // Execute instruction
   (*(optable + opcode))();
