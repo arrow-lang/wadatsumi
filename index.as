@@ -91,11 +91,11 @@ def main() {
   // PASS
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/03-op sp,hl.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/04-op r,imm.gb");
-  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/06-ld r,r.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/08-misc instrs.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/09-op r,r.gb");
+  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/09-op r,r.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/11-op a,(hl).gb");
 
@@ -195,7 +195,7 @@ def mmu_read8(address: uint16): uint8 {
 
   // Sprite Attribute Table (OAM): $FE00 – $FE9F
   if (address >= 0xFE00) and (address <= 0xFE9F) {
-    return *(oam + (address & 0x9F));
+    return *(oam + (address & 0xFF));
   }
 
   // Unusable
@@ -288,7 +288,7 @@ def mmu_write8(address: uint16, value: uint8) {
 
   // Sprite Attribute Table (OAM): $FE00 – $FE9F
   if (address >= 0xFE00) and (address <= 0xFE9F) {
-    *(oam + (address & 0x9F)) = value;
+    *(oam + (address & 0xFF)) = value;
     return;
   }
 
@@ -1312,11 +1312,10 @@ def om_xor8(a: uint8, b: uint8): uint8 {
 // Add 8-bit value
 def om_add8(a: uint8, b: uint8): uint8 {
   let r = uint16(a) + uint16(b);
-  let carry = uint16(a) ^ uint16(b) ^ r;
 
-  flag_set(FLAG_H, (carry & 0x10) != 0);
-  flag_set(FLAG_C, (carry & 0x100) != 0);
+  flag_set(FLAG_H, ((a & 0x0F) + (b & 0x0F)) > 0x0F);
   flag_set(FLAG_Z, (r & 0xFF) == 0);
+  flag_set(FLAG_C, r > 0xFF);
   flag_set(FLAG_N, false);
 
   return uint8(r & 0xFF);
@@ -1324,33 +1323,48 @@ def om_add8(a: uint8, b: uint8): uint8 {
 
 // Add 8-bit value w/carry
 def om_adc8(a: uint8, b: uint8): uint8 {
-  return om_add8(a, b + uint8(flag_geti(FLAG_C)));
+  let carry = uint16(flag_geti(FLAG_C));
+  let r = uint16(a) + uint16(b) + carry;
+
+  flag_set(FLAG_H, ((a & 0x0F) + (b & 0x0F) + uint8(carry)) > 0x0F);
+  flag_set(FLAG_Z, (r & 0xFF) == 0);
+  flag_set(FLAG_C, r > 0xFF);
+  flag_set(FLAG_N, false);
+
+  return uint8(r & 0xFF);
 }
 
 // Subtract 8-bit value
 def om_sub8(a: uint8, b: uint8): uint8 {
-  flag_set(FLAG_H, (((a & 0xF) - (b & 0xF)) & 0x10) < 0);
+  let r = int16(a) - int16(b);
 
-  let r = a - b;
-
-  flag_set(FLAG_C, b > a);
-  flag_set(FLAG_Z, r == 0);
+  flag_set(FLAG_C, r < 0);
+  flag_set(FLAG_Z, (r & 0xFF) == 0);
   flag_set(FLAG_N, true);
+  flag_set(FLAG_H, (((int16(a) & 0x0F) - (int16(b) & 0x0F)) < 0));
 
-  return r;
+  return uint8(r & 0xFF);
 }
 
 // Subtract 8-bit value w/carry
 def om_sbc8(a: uint8, b: uint8): uint8 {
-  return om_sub8(a, b + uint8(flag_geti(FLAG_C)));
+  let carry = int16(flag_geti(FLAG_C));
+  let r = int16(a) - int16(b) - carry;
+
+  flag_set(FLAG_C, r < 0);
+  flag_set(FLAG_Z, (r & 0xFF) == 0);
+  flag_set(FLAG_N, true);
+  flag_set(FLAG_H, (((int16(a) & 0x0F) - (int16(b) & 0x0F) - carry) < 0));
+
+  return uint8(r & 0xFF);
 }
 
 // Add 16-bit value
 def om_add16(a: uint16, b: uint16): uint16 {
-  flag_set(FLAG_H, (((a & 0xFF) + (b & 0xFF)) & 0x100) > 0);
-
   let r = uint32(a) + uint32(b);
 
+  flag_set(FLAG_H, ((a & 0xF0) + (b & 0xF0)) > 0xF0);
+  flag_set(FLAG_Z, (r & 0xFFFF) == 0);
   flag_set(FLAG_C, r > 0xFFFF);
   flag_set(FLAG_N, false);
 
@@ -1359,7 +1373,15 @@ def om_add16(a: uint16, b: uint16): uint16 {
 
 // Add 16-bit value w/carry
 def om_adc16(a: uint16, b: uint16): uint16 {
-  return om_add16(a, b + uint16(flag_geti(FLAG_C)));
+  let carry = uint32(flag_geti(FLAG_C));
+  let r = uint32(a) + uint32(b) + carry;
+
+  flag_set(FLAG_H, ((a & 0xF0) + (b & 0xF0) + uint16(carry)) > 0xF0);
+  flag_set(FLAG_Z, (r & 0xFFFF) == 0);
+  flag_set(FLAG_C, r > 0xFFFF);
+  flag_set(FLAG_N, false);
+
+  return uint16(r & 0xFFFF);
 }
 
 // Push 16-bit value
@@ -1779,7 +1801,7 @@ def op_2D() {
 
 // [2E] LD L, n
 def op_2E() {
-  *A = mmu_next8();
+  *L = mmu_next8();
 }
 
 // [2F] CPL
@@ -2456,7 +2478,7 @@ def op_B1() {
 
 // [B2] OR A, D
 def op_B2() {
-  *A = om_or8(*A, *C);
+  *A = om_or8(*A, *D);
 }
 
 // [B3] OR A, E
@@ -2496,7 +2518,7 @@ def op_B9() {
 
 // [BA] CP A, D
 def op_BA() {
-  om_sub8(*A, *C);
+  om_sub8(*A, *D);
 }
 
 // [BB] CP A, E
