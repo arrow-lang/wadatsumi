@@ -95,8 +95,8 @@ def main() {
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/06-ld r,r.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/08-misc instrs.gb");
-  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/09-op r,r.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/09-op r,r.gb");
+  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/11-op a,(hl).gb");
 
   reset();
@@ -1241,24 +1241,22 @@ def flag_geti(flag: Flag): uint8 {
 
 // Increment 8-bit Register
 def om_inc8(r: uint8): uint8 {
-  flag_set(FLAG_H, (((r & 0xF) + (1 & 0xF)) & 0x10) > 0);
-
   r += 1;
 
   flag_set(FLAG_Z, r == 0);
   flag_set(FLAG_N, false);
+  flag_set(FLAG_H, r & 0x0F == 0x00);
 
   return r;
 }
 
 // Decrement 8-bit Register
 def om_dec8(r: uint8): uint8 {
-  flag_set(FLAG_H, (((r & 0xF) - (1 & 0xF)) & 0x10) < 0);
-
   r -= 1;
 
   flag_set(FLAG_Z, r == 0);
   flag_set(FLAG_N, true);
+  flag_set(FLAG_H, r & 0x0F == 0x0F);
 
   return r;
 }
@@ -1433,7 +1431,11 @@ def om_swap8(n: uint8): uint8 {
 // Shift Right
 def om_shr(n: uint8, arithmetic: bool): uint8 {
   let r = if arithmetic {
-    ((n & 0x7F) >> 1) | (n & 0x80);
+    if (n & 0x80) != 0 {
+      (n >> 1) | 0x80;
+    } else {
+      (n >> 1);
+    }
   } else {
     (n >> 1);
   };
@@ -2238,7 +2240,7 @@ def op_81() {
 
 // [82] ADD A, D
 def op_82() {
-  *A = om_add8(*A, *C);
+  *A = om_add8(*A, *D);
 }
 
 // [83] ADD A, E
@@ -2278,7 +2280,7 @@ def op_89() {
 
 // [8A] ADC A, D
 def op_8A() {
-  *A = om_adc8(*A, *C);
+  *A = om_adc8(*A, *D);
 }
 
 // [8B] ADC A, E
@@ -2318,7 +2320,7 @@ def op_91() {
 
 // [92] SUB A, D
 def op_92() {
-  *A = om_sub8(*A, *C);
+  *A = om_sub8(*A, *D);
 }
 
 // [93] SUB A, E
@@ -2358,7 +2360,7 @@ def op_99() {
 
 // [9A] SBC A, D
 def op_9A() {
-  *A = om_sbc8(*A, *C);
+  *A = om_sbc8(*A, *D);
 }
 
 // [9B] SBC A, E
@@ -2398,7 +2400,7 @@ def op_A1() {
 
 // [A2] AND A, D
 def op_A2() {
-  *A = om_and8(*A, *C);
+  *A = om_and8(*A, *D);
 }
 
 // [A3] AND A, E
@@ -2438,7 +2440,7 @@ def op_A9() {
 
 // [AA] XOR A, D
 def op_AA() {
-  *A = om_xor8(*A, *C);
+  *A = om_xor8(*A, *D);
 }
 
 // [AB] XOR A, E
