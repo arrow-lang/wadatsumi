@@ -4612,6 +4612,9 @@ def execute() {
   let cycles_cnt = 0;
 
   while is_running {
+    // Poll window events
+    sdl_step();
+
     // Get elapsed seconds (from start of loop)
     clk += float64(clock() - clk_o) / float64(CLOCKS_PER_SEC);
     clk_o = clock();
@@ -4667,7 +4670,7 @@ def execute() {
 
     // A single frame takes at least 70224 cycles to render
     if cycles_cnt >= 70224 {
-      sdl_step();
+      sdl_render();
       cycles_cnt = 0;
     }
   }
@@ -4727,6 +4730,11 @@ def sdl_init() {
   // Create renderer
   _renderer = SDL_CreateRenderer(_window, -1,
     SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+
+  // White initial screen
+  SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
+  SDL_RenderClear(_renderer);
+  SDL_RenderPresent(_renderer);
 }
 
 def sdl_fini() {
@@ -4773,11 +4781,8 @@ def sdl_render() {
 }
 
 def sdl_step() {
-  // Render
-  sdl_render();
-
   // Events
-  while SDL_PollEvent(_evt) {
+  if SDL_PollEvent(_evt) {
     let evt_type = *(_evt as *uint32);
     if evt_type == 0x100 {
       // Quit – App was asked to quit (nicely)
