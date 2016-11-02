@@ -60,7 +60,7 @@ def main() {
 
   // open_rom("./missile-command.gb");
   // open_rom("./tetris.gb");
-  open_rom("./dr-mario.gb");
+  // open_rom("./dr-mario.gb");
   // open_rom("./boxxle.gb");
   // open_rom("./super-mario-land.gb");
 
@@ -71,7 +71,7 @@ def main() {
   // won't execute properly without MBC1 support, but the individual
   // Roms will work fine.
 
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/01-special.gb");
+  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/01-special.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/02-interrupts.gb");
 
   // PASS
@@ -365,9 +365,26 @@ def mmu_write8(address: uint16, value: uint8) {
     return;
   }
 
+  // Sound Register
+  if (
+    (address >= 0xFF10 and address <= 0xFF14) or
+    (address >= 0xFF16 and address <= 0xFF1E) or
+    (address >= 0xFF20 and address <= 0xFF26) or
+    (address >= 0xFF30 and address <= 0xFF3F)
+  ) {
+    return sound_write(address, value);
+  }
+
+  // GPU Register
   if (address & 0xF0) >= 0x40 and (address & 0xF0) <= 0x70 {
-    // GPU Register
     return gpu_write(address, value);
+  }
+
+  // SB – Serial Transfer Data (R/W)
+  // SC – Serial Transfer Control (R/W)
+  if (address == 0xFF01 or address == 0xFF02) {
+    // TODO: Implement link cable / debug printout
+    return;
   }
 
   // IF – Interrupt Flag (R/W)
@@ -4307,6 +4324,14 @@ def cpu_step(): uint8 {
 }
 
 // =============================================================================
+// [SP] Sound
+// =============================================================================
+def sound_write(address: uint16, value: uint8) {
+  // TODO: Implement sound registers
+  // Do nothing (for now)
+}
+
+// =============================================================================
 // [GP] GPU
 // =============================================================================
 let gpu_mode: uint8;
@@ -4743,32 +4768,6 @@ def sdl_render() {
 
     y += 1;
   }
-
-  // A tile is 8x8
-
-  // Render first tile
-  // let i = 0;
-  // while i < 16 {
-  //   let x = 0;
-  //   while x < 8 {
-  //     let y = 0;
-  //     while y < 8 {
-  //       let pixel = *(*(*(gpu_tiles + i) + y) + x);
-  //
-  //       if pixel == 0 {
-  //         SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
-  //       } else {
-  //         SDL_SetRenderDrawColor(_renderer, 0, 0, 0, 255);
-  //       }
-  //
-  //       SDL_RenderDrawPoint(_renderer, c_int(i * 8 + x), c_int(y));
-  //
-  //       y += 1;
-  //     }
-  //     x += 1;
-  //   }
-  //   i += 1;
-  // }
 
   SDL_RenderPresent(_renderer);
 }
