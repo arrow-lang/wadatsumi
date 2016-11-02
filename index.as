@@ -93,10 +93,10 @@ def main() {
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/04-op r,imm.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/06-ld r,r.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb");
+  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/08-misc instrs.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/09-op r,r.gb");
-  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/11-op a,(hl).gb");
 
   reset();
@@ -2596,7 +2596,7 @@ def op_C6() {
 
 // [C7] RST $00
 def op_C7() {
-  om_jp(0x00);
+  om_call(0x00);
 }
 
 // [C8] RET Z
@@ -2660,7 +2660,7 @@ def op_CE() {
 
 // [CF] RST $08
 def op_CF() {
-  om_jp(0x08);
+  om_call(0x08);
 }
 
 // [D0] RET NC
@@ -2706,7 +2706,7 @@ def op_D6() {
 
 // [D7] RST $10
 def op_D7() {
-  om_jp(0x10);
+  om_call(0x10);
 }
 
 // [D8] RET C
@@ -2748,7 +2748,7 @@ def op_DE() {
 
 // [DF] RST $18
 def op_DF() {
-  om_jp(0x18);
+  om_call(0x18);
 }
 
 // [E0] LD ($FF00 + n), A
@@ -2778,7 +2778,7 @@ def op_E6() {
 
 // [E7] RST $20
 def op_E7() {
-  om_jp(0x20);
+  om_call(0x20);
 }
 
 // [E8] ADD SP, i8
@@ -2811,7 +2811,7 @@ def op_EE() {
 
 // [EF] RST $28
 def op_EF() {
-  om_jp(0x28);
+  om_call(0x28);
 }
 
 // [F0] LD A, ($FF00 + n)
@@ -2850,7 +2850,7 @@ def op_F6() {
 
 // [F7] RST 30H
 def op_F7() {
-  om_jp(0x30);
+  om_call(0x30);
 }
 
 // [F8] LD HL, SP + i8
@@ -2888,7 +2888,7 @@ def op_FE() {
 
 // [FF] RST $38
 def op_FF() {
-  om_jp(0x38);
+  om_call(0x38);
 }
 
 // [CB 00] RLC B
