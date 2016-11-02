@@ -91,9 +91,9 @@ def main() {
   // PASS
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/03-op sp,hl.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/04-op r,imm.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
+  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/06-ld r,r.gb");
-  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/08-misc instrs.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/09-op r,r.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
@@ -1361,21 +1361,7 @@ def om_sbc8(a: uint8, b: uint8): uint8 {
 def om_add16(a: uint16, b: uint16): uint16 {
   let r = uint32(a) + uint32(b);
 
-  flag_set(FLAG_H, ((a & 0xF0) + (b & 0xF0)) > 0xF0);
-  flag_set(FLAG_Z, (r & 0xFFFF) == 0);
-  flag_set(FLAG_C, r > 0xFFFF);
-  flag_set(FLAG_N, false);
-
-  return uint16(r & 0xFFFF);
-}
-
-// Add 16-bit value w/carry
-def om_adc16(a: uint16, b: uint16): uint16 {
-  let carry = uint32(flag_geti(FLAG_C));
-  let r = uint32(a) + uint32(b) + carry;
-
-  flag_set(FLAG_H, ((a & 0xF0) + (b & 0xF0) + uint16(carry)) > 0xF0);
-  flag_set(FLAG_Z, (r & 0xFFFF) == 0);
+  flag_set(FLAG_H, ((a ^ b ^ uint16(r & 0xFFFF)) & 0x1000) != 0);
   flag_set(FLAG_C, r > 0xFFFF);
   flag_set(FLAG_N, false);
 
