@@ -5,12 +5,11 @@ clean:
 
 bin/wadatsumi: build/wadatsumi.o
 	@ mkdir -p bin
-	@ gcc -o $@ $^
+	@ gcc -o $@ $^ -lSDL2 -lc
 
 build/wadatsumi.o: build/wadatsumi.ll
 	@ llc-3.8 -filetype=obj -o $@ $^
-	@ llc-3.8 -filetype=asm -o build/wadatsumi.as $^
 
 build/wadatsumi.ll: index.as
 	@ mkdir -p build
-	@ arrow --compile $^ > $@
+	@ arrow --compile $^ | opt-3.8 -O3 -S > $@

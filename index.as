@@ -1,9 +1,4 @@
 
-// TODO: Finish opcodes
-// TODO: Tileset rendering
-// TODO: Implement 0x70 - 0x7F
-// TODO: Implement $FF40 AND $FF41 (MMU)
-
 // libc
 type size_t = int64;
 type FILE = int64;
@@ -30,13 +25,14 @@ extern def sleep(seconds: uint32);
 let CLOCKS_PER_SEC: uint64 = 1000000;
 
 // Memory
-let rom: *uint8;    // ROM  – as big as cartridge
+let rom: *uint8;    // ROM – as big as cartridge
 let vram: *uint8;   // Video RAM – 8 KiB
 let wram: *uint8;   // Work RAM – 8 KiB
 let oam: *uint8;    // Sprite Attribute Table (OAM) – 160 B
 let hram: *uint8;   // High RAM – 127 B
 
 // CPU: State
+let is_running = true;
 let CYCLES: uint8;
 let IME = false;
 let PC: uint16 = 0;
@@ -59,22 +55,12 @@ let H: *uint8 = (&HL as *uint8) + 1;
 let L: *uint8 = (&HL as *uint8) + 0;
 let SP: uint16 = 0;
 
-// GPU
-let gpu_mode: uint8;
-let gpu_mode_clock: uint8;
-let gpu_line: uint8;
-
-def panic(s: str) {
-  printf(s);
-  exit(-1);
-}
-
 def main() {
   init();
 
-  // open_rom("./centipede.gb");
   // open_rom("./missile-command.gb");
   // open_rom("./tetris.gb");
+  open_rom("./dr-mario.gb");
   // open_rom("./boxxle.gb");
   // open_rom("./super-mario-land.gb");
 
@@ -91,13 +77,15 @@ def main() {
   // PASS
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/03-op sp,hl.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/04-op r,imm.gb");
-  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/06-ld r,r.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/08-misc instrs.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/09-op r,r.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/11-op a,(hl).gb");
+
+  dump_rom();
 
   reset();
 
@@ -109,7 +97,10 @@ def main() {
 main();
 
 def init() {
+  sdl_init();
+
   cpu_init();
+  gpu_init();
 
   init_optable();
   init_cycletable();
@@ -121,7 +112,10 @@ def reset() {
 }
 
 def fini() {
+  sdl_fini();
+
   cpu_fini();
+  gpu_fini();
 
   fini_optable();
   fini_cycletable();
@@ -157,12 +151,81 @@ def open_rom(filename: str) {
 
   // Read file into ROM
   fread(rom, 1, length, stream);
+}
 
-  // Print out the ROM name
-  // let title = malloc(0x10) as str;
-  // strncpy(title, (rom + 0x134) as str, 0x10);
-  // printf("open: %s\n", title);
-  // free(title as *uint8);
+def dump_rom() {
+  // Gather ROM information
+  // Title
+  let rom_title = malloc(16) as str;
+  strncpy(rom_title, (rom + 0x134) as str, 16);
+
+  // Licensee
+  let licensee = *(rom + 0x14B);
+  if licensee == 0x33 {
+    let licensee_0 = *(rom + 0x0144);
+    let licensee_1 = *(rom + 0x0145);
+
+    if licensee_0 < 30 or licensee_0 > 39 or licensee_1 < 30 or licensee_1 > 39 {
+      printf("warn: unexpected (new) licensee code: %02X %02X\n", licensee_0, licensee_1);
+    }
+
+    licensee_0 -= 30;
+    licensee_1 -= 30;
+
+    licensee = licensee_1 | (licensee_0 << 4);
+  }
+
+  // SGB Flag
+  let is_sgb = *(rom + 0x146) == 0x03;
+
+  // Cartridge Type
+  let cart = *(rom + 0x147);
+
+  // ROM Size
+  let rom_size = (32 * 1024) << *(rom + 0x148);
+
+  // External RAM Size
+  let ext_ram_size_code = *(rom + 0x149);
+  let ext_ram_size = (if ext_ram_size_code == 0x01 {
+    2;
+  } else if ext_ram_size_code == 0x02 {
+    8;
+  } else if ext_ram_size_code == 0x03 {
+    32;
+  } else {
+    0;
+  }) * 1024;
+
+  // Destination Code
+  let dst_code = *(rom + 0x014A);
+
+  // ROM Version
+  let rom_version = *(rom + 0x14C);
+
+  // DEBUG: Print out Cartridge
+  printf("%-20s : %s\n", "Title", rom_title);
+  printf("%-20s : %02X\n", "Licensee", licensee);
+  printf("%-20s : %d\n", "SGB", is_sgb);
+  printf("%-20s : %02X\n", "Cartridge", cart);
+  printf("%-20s : %d\n", "ROM Size", rom_size);
+  printf("%-20s : %d\n", "External RAM Size", ext_ram_size);
+  printf("%-20s : %d\n", "Destination", dst_code);
+  printf("%-20s : %d\n", "Version", rom_version);
+  printf("\n");
+
+  free(rom_title as *uint8);
+}
+
+// =============================================================================
+// [X] Helpers
+// =============================================================================
+
+def bit(value: bool, n: uint8): uint8 {
+  return (if value { 1; } else { 0; }) << n;
+}
+
+def testb(value: uint8, n: uint8): bool {
+  return (value & (1 << n)) != 0;
 }
 
 // =============================================================================
@@ -200,7 +263,7 @@ def mmu_read8(address: uint16): uint8 {
 
   // Unusable
   if (address <= 0xFEFF) {
-    printf("warn: read from unusable memory: $%04X\n", address);
+    // Not connected to anything
     return 0;
   }
 
@@ -211,15 +274,12 @@ def mmu_read8(address: uint16): uint8 {
 
   // I/O Ports
 
-  if address == 0xFF41 {
-    // STAT – LCDC Status (R/W)
-    // TODO: Status interrupt enable/disable
-    // TODO: Coincidence Interrupt (LYC / LY)
-    return gpu_mode;
-  } else if address == 0xFF44 {
-    // LY – LCDC Y-Coordinate (R)
-    return gpu_line;
-  } else if address == 0xFF0F {
+  if (address & 0xF0) >= 0x40 and (address & 0xF0) <= 0x70 {
+    // GPU Register
+    return gpu_read(address);
+  }
+
+  if address == 0xFF0F {
     // IF – Interrupt Flag (R/W)
     return IF;
   } else if address == 0xFFFF {
@@ -228,9 +288,6 @@ def mmu_read8(address: uint16): uint8 {
   }
 
   printf("warn: unhandled read from memory: $%04X\n", address);
-  // exit(-1);
-
-  // FIXME(arrow): `exit` should be able to be marked divergent
   return 0;
 }
 
@@ -259,7 +316,6 @@ def mmu_next16(): uint16 {
 }
 
 // Write 8-bits
-let blargg: uint8;
 def mmu_write8(address: uint16, value: uint8) {
   // ROM: $0000 – $7FFF
   if (address & 0xF000) <= 0x7000 {
@@ -269,7 +325,12 @@ def mmu_write8(address: uint16, value: uint8) {
 
   // Video RAM: $8000 – $9FFF
   if (address & 0xF000) <= 0x9000 {
+    // GPU VRAM
     *(vram + (address & 0x1FFF)) = value;
+
+    // GPU –> Update Tile
+    gpu_update_tile(address, value);
+
     return;
   }
 
@@ -294,7 +355,7 @@ def mmu_write8(address: uint16, value: uint8) {
 
   // Unusable
   if (address <= 0xFEFF) {
-    printf("warn: write to unusable memory: $%04X ($%02X)\n", address, value);
+    // Not connected to anything
     return;
   }
 
@@ -304,14 +365,9 @@ def mmu_write8(address: uint16, value: uint8) {
     return;
   }
 
-  if (address == 0xFF01) {
-    blargg = value;
-    return;
-  }
-
-  if (address == 0xFF02 and value == 0x81) {
-    printf("%C", blargg, blargg);
-    return;
+  if (address & 0xF0) >= 0x40 and (address & 0xF0) <= 0x70 {
+    // GPU Register
+    return gpu_write(address, value);
   }
 
   // IF – Interrupt Flag (R/W)
@@ -326,7 +382,7 @@ def mmu_write8(address: uint16, value: uint8) {
     return;
   }
 
-  // printf("warn: unhandled write to memory: $%04X ($%02X)\n", address, value);
+  printf("warn: unhandled write to memory: $%04X ($%02X)\n", address, value);
   // exit(-1);
 }
 
@@ -4192,37 +4248,37 @@ def cpu_reset() {
   // (Last) Instruction Time (in cycles)
   CYCLES = 0;
 
-  // mmu_write8(0xFF05, 0x00);
-  // mmu_write8(0xFF06, 0x00);
-  // mmu_write8(0xFF07, 0x00);
-  // mmu_write8(0xFF10, 0x80);
-  // mmu_write8(0xFF11, 0xBF);
-  // mmu_write8(0xFF12, 0xF3);
-  // mmu_write8(0xFF14, 0xBF);
-  // mmu_write8(0xFF16, 0x3F);
-  // mmu_write8(0xFF17, 0x00);
-  // mmu_write8(0xFF19, 0xBF);
-  // mmu_write8(0xFF1A, 0x7F);
-  // mmu_write8(0xFF1B, 0xFF);
-  // mmu_write8(0xFF1C, 0x9F);
-  // mmu_write8(0xFF1E, 0xBF);
-  // mmu_write8(0xFF20, 0xFF);
-  // mmu_write8(0xFF21, 0x00);
-  // mmu_write8(0xFF22, 0x00);
-  // mmu_write8(0xFF23, 0xBF);
-  // mmu_write8(0xFF24, 0x77);
-  // mmu_write8(0xFF25, 0xF3);
-  // // NOTE: $FF26 should be F0 for SGB
-  // mmu_write8(0xFF26, 0xF1);
-  // mmu_write8(0xFF40, 0x91);
-  // mmu_write8(0xFF42, 0x00);
-  // mmu_write8(0xFF43, 0x00);
-  // mmu_write8(0xFF45, 0x00);
-  // mmu_write8(0xFF47, 0xFC);
-  // mmu_write8(0xFF48, 0xFF);
-  // mmu_write8(0xFF49, 0xFF);
-  // mmu_write8(0xFF4A, 0x00);
-  // mmu_write8(0xFF4B, 0x00);
+  mmu_write8(0xFF05, 0x00);
+  mmu_write8(0xFF06, 0x00);
+  mmu_write8(0xFF07, 0x00);
+  mmu_write8(0xFF10, 0x80);
+  mmu_write8(0xFF11, 0xBF);
+  mmu_write8(0xFF12, 0xF3);
+  mmu_write8(0xFF14, 0xBF);
+  mmu_write8(0xFF16, 0x3F);
+  mmu_write8(0xFF17, 0x00);
+  mmu_write8(0xFF19, 0xBF);
+  mmu_write8(0xFF1A, 0x7F);
+  mmu_write8(0xFF1B, 0xFF);
+  mmu_write8(0xFF1C, 0x9F);
+  mmu_write8(0xFF1E, 0xBF);
+  mmu_write8(0xFF20, 0xFF);
+  mmu_write8(0xFF21, 0x00);
+  mmu_write8(0xFF22, 0x00);
+  mmu_write8(0xFF23, 0xBF);
+  mmu_write8(0xFF24, 0x77);
+  mmu_write8(0xFF25, 0xF3);
+  // NOTE: $FF26 should be F0 for SGB
+  mmu_write8(0xFF26, 0xF1);
+  mmu_write8(0xFF40, 0x91);
+  mmu_write8(0xFF42, 0x00);
+  mmu_write8(0xFF43, 0x00);
+  mmu_write8(0xFF45, 0x00);
+  mmu_write8(0xFF47, 0xFC);
+  mmu_write8(0xFF48, 0xFF);
+  mmu_write8(0xFF49, 0xFF);
+  mmu_write8(0xFF4A, 0x00);
+  mmu_write8(0xFF4B, 0x00);
   mmu_write8(0xFFFF, 0x00);
 }
 
@@ -4244,35 +4300,8 @@ def cpu_step(): uint8 {
   // Set instruction time to the base/min
   CYCLES = *(cycletable + opcode);
 
-  // printf("[$%04X ~ $%02X] <- AF=%02X%02X BC=%02X%02X DE=%02X%02X HL=%02X%02X SP=%04X\n",
-  //   PC, opcode,
-  //   *A, *F,
-  //   *B, *C,
-  //   *D, *E,
-  //   *H, *L,
-  //   SP
-  // );
-
-  // if (opcode == 0xCB) {
-  //   printf("\tCB => %02X\n", mmu_read8(PC));
-  // }
-
-  // C06D
-
   // Execute instruction
   (*(optable + opcode))();
-
-  // DEBUG: Log opcode
-  // TODO: Better debug information
-  // printf("debug: opcode: $%02X\n", opcode);
-
-  // if PC == 0x282A {
-  //   let f = fopen("tile0.bin", "wb");
-  //   fwrite(vram, 16, 1, f);
-  //   fclose(f);
-  //
-  //   exit(0);
-  // }
 
   return CYCLES;
 }
@@ -4280,6 +4309,104 @@ def cpu_step(): uint8 {
 // =============================================================================
 // [GP] GPU
 // =============================================================================
+let gpu_mode: uint8;
+let gpu_mode_clock: uint16;
+let gpu_line: uint8;
+
+let gpu_lcd_enable: bool;
+let gpu_window_enable: bool;
+let gpu_sprite_enable: bool;
+let gpu_bg_enable: bool;
+
+// 0=9800-9BFF, 1=9C00-9FFF
+let gpu_window_tm_select: bool;
+let gpu_bg_tm_select: bool;
+
+// 0=8800-97FF, 1=8000-8FFF
+let gpu_td_select: bool;
+
+// 0=8x8, 1=8x16
+let gpu_sprite_size: bool;
+
+// Tiles (screen)
+let gpu_tiles: ***uint8;
+
+// Framebuffer
+let gpu_framebuffer: *uint8;
+
+// Scrolling
+let gpu_scy = 0;
+let gpu_scx = 0;
+
+def gpu_init() {
+  gpu_framebuffer = malloc(160 * 144);
+  memset(gpu_framebuffer, 0, 160 * 144);
+
+  gpu_tiles = malloc(384 * 8) as ***uint8;
+  let i = 0;
+  while i < 384 {
+    *(gpu_tiles + i) = malloc(8 * 8) as **uint8;
+    let x = 0;
+    while x < 8 {
+      *(*(gpu_tiles + i) + x) = malloc(8);
+      memset(*(*(gpu_tiles + i) + x), 0, 8);
+      x += 1;
+    }
+    i += 1;
+  }
+}
+
+def gpu_fini() {
+  let i = 0;
+  while i < 384 {
+    let x = 0;
+    while x < 8 {
+      free(*(*(gpu_tiles + i) + x));
+      x += 1;
+    }
+    free(*(gpu_tiles + i) as *uint8);
+    i += 1;
+  }
+
+  free(gpu_tiles as *uint8);
+  free(gpu_framebuffer);
+}
+
+def gpu_update_tile(address: uint16, value: uint8) {
+  // VRAM is 0x8000 – 0x9FFF (0x0000 – 0x1FFF)
+  // Tile Data is 0x8000 – 0x17FF
+  address &= 0x1FFE;
+
+  // Determine the tile (and row of it)
+  let tile = (address >> 4) & 0x1FF;
+  let y = (address >> 1) & 0x7;
+
+  if tile >= 384 { return; }
+
+  let x: uint8 = 0;
+  while x < 8 {
+    // Bit index for pixel
+    let sx: uint8 = 1 << (7 - x);
+
+    let n0 = *(vram + address);
+    let n1 = *(vram + address + 1);
+
+    let lo = if testb(n0, 7 - x) { 1; } else { 0; };
+    let hi = if testb(n1, 7 - x) { 2; } else { 0; };
+
+    let color = lo | hi;
+
+    // Update tile
+    // 0 = Off
+    // 1 = 33% On
+    // 2 = 66% On
+    // 3 = 100% On
+    *(*(*(gpu_tiles + tile) + y) + x) = uint8(color);
+
+    x += 1;
+  }
+}
+
 def gpu_reset() {
   gpu_mode = 2;
   gpu_mode_clock = 0;
@@ -4287,61 +4414,209 @@ def gpu_reset() {
 }
 
 def gpu_render_scanline() {
-  // [...]
+  // Background: Tile Map (in VRAM)
+  let mapo: int64 = if (gpu_bg_tm_select) { 0x1C00; } else { 0x1800; };
+
+  // 1-byte per tile index in the tile map
+  // A tile map is 32x32
+
+  // Move to the selected line (to be rendered) and scroll Y
+  mapo += (((int64(gpu_line) + int64(gpu_scy)) & 255) >> 3) << 5;
+  // mapo += ((int64(gpu_line) + int64(gpu_scy)) & 0xFF) >> 3;
+
+  // Tile line offset (X-scrolling)
+  let lineo = gpu_scx >> 3;
+
+  // Pixel line offset (in tiles)
+  let y = (gpu_line + gpu_scy) & 7;
+
+  // Pixel X offset (in tileline)
+  let x = gpu_scx & 7;
+
+  // Framebuffer offset
+  let fbo = uint32(gpu_line) * 160;
+
+  // Iterate through the entire tile-line
+  let tile = int16(*(vram + mapo + lineo));
+  // printf("gpu_td_select: %d\n", gpu_td_select);
+  if gpu_td_select and tile < 128 { tile += 256; }
+
+  let i = 0;
+  while i < 160 {
+    // Push pixel to framebuffer
+    *(gpu_framebuffer + fbo + i) = *(*(*(gpu_tiles + tile) + y) + x);
+    // *(gpu_framebuffer + fbo + i) = 1;
+
+    x += 1;
+    if (x == 8) {
+      // Tile ends; pick a new one
+      x = 0;
+      // mapo += 1;
+      lineo += 1;
+      lineo &= 31;
+      tile = int16(*(vram + mapo + lineo));
+      // lineo = (lineo + 1) & 31;
+      if gpu_td_select and tile < 128 { tile += 256; }
+    }
+
+    i += 1;
+  }
 }
 
 def gpu_step(cycles: uint8) {
-  gpu_mode_clock += cycles;
+  gpu_mode_clock += uint16(cycles);
 
   if gpu_mode == 2 {
-    // OAM read mode: scanline active
+    // Scanline: OAM read mode
     if gpu_mode_clock >= 80 {
-      // Enter scanline mode 3
       gpu_mode = 3;
-      gpu_mode_clock = 0;
+      gpu_mode_clock -= 80;
     }
   } else if gpu_mode == 3 {
-    // VRAM read mode, scanline active
-    // Treat end of mode 3 as end of scanline
+    // Scanline: VRAM read mode
     if gpu_mode_clock >= 172 {
-      // Enter HBLANK
-      gpu_mode_clock = 0;
       gpu_mode = 0;
+      gpu_mode_clock -= 172;
 
       // Render Scanline
       gpu_render_scanline();
     }
   } else if gpu_mode == 0 {
     // HBLANK
-    // After the last hblank, render screen data
     if gpu_mode_clock >= 204 {
-      gpu_mode_clock = 0;
-      gpu_line += 1;
+      gpu_mode_clock -= 204;
 
       if gpu_line == 143 {
-        // Enter VBLANK
         gpu_mode = 1;
 
-        // Present rendered screen data
-        // TODO: gpu_present();
+        // TODO: VBLANK Interrupt
+        IF |= 0x01;
       } else {
         gpu_mode = 2;
       }
+
+      gpu_line += 1;
     }
   } else if gpu_mode == 1 {
     // VBLANK
-    // VBLANK lasts for 10 lines
     if gpu_mode_clock >= 456 {
-      gpu_mode_clock = 0;
+      gpu_mode_clock -= 456;
       gpu_line += 1;
 
       if gpu_line > 153 {
-        // Restart scanning (back to the top)
-        gpu_mode = 2;
         gpu_line = 0;
+        gpu_mode = 2;
       }
     }
   }
+
+  // } else if gpu_mode == 3 {
+  //   // VRAM read mode, scanline active
+  //   // Treat end of mode 3 as end of scanline
+  //   if gpu_mode_clock >= 172 {
+  //     // Enter HBLANK
+  //     gpu_mode_clock = 0;
+  //     gpu_mode = 0;
+  //
+  //     // Render Scanline
+  //     gpu_render_scanline();
+  //   }
+  // } else if gpu_mode == 0 {
+  //   // HBLANK
+  //   // After the last hblank, render screen data
+  //   if gpu_mode_clock >= 204 {
+  //     gpu_mode_clock = 0;
+  //     gpu_line += 1;
+  //
+  //     if gpu_line == 144 {
+  //       // Enter VBLANK
+  //       gpu_mode = 1;
+  //
+  //       // Present rendered screen data
+  //       // sdl_render();
+  //       // TODO: gpu_present();
+  //     } else {
+  //       gpu_mode = 2;
+  //     }
+  //   }
+  // } else if gpu_mode == 1 {
+  //   // VBLANK
+  //   // VBLANK lasts for 10 lines
+  //   if gpu_mode_clock >= 456 {
+  //     gpu_mode_clock = 0;
+  //     gpu_line += 1;
+  //
+  //     if gpu_line > 153 {
+  //       // Restart scanning (back to the top)
+  //       gpu_mode = 2;
+  //       gpu_line = 0;
+  //     }
+  //   }
+  // }
+}
+
+def gpu_read(address: uint16): uint8 {
+  if address == 0xFF40 {
+    // LCDC - LCD Control (R/W)
+    return (
+      bit(gpu_lcd_enable, 7) |
+      bit(gpu_window_tm_select, 6) |
+      bit(gpu_window_enable, 5) |
+      bit(gpu_td_select, 4) |
+      bit(gpu_bg_tm_select, 3) |
+      bit(gpu_sprite_size, 2) |
+      bit(gpu_sprite_enable, 1) |
+      bit(gpu_bg_enable, 0)
+    );
+  } else if address == 0xFF41 {
+    // STAT – LCDC Status (R/W)
+    // TODO: Status interrupt enable/disable
+    // TODO: Coincidence Interrupt (LYC / LY)
+    return uint8(gpu_mode);
+  } else if address == 0xFF44 {
+    // LY – LCDC Y-Coordinate (R)
+    return gpu_line;
+  }
+
+  printf("warn: unhandled read from GPU register: $%04X\n", address);
+  return 0;
+}
+
+def gpu_write(address: uint16, value: uint8) {
+  if address == 0xFF40 {
+    // LCDC - LCD Control (R/W)
+    gpu_lcd_enable = testb(value, 7 );
+    gpu_window_tm_select = testb(value, 6);
+    gpu_window_enable = testb(value, 5);
+    gpu_td_select = testb(value, 4);
+    gpu_bg_tm_select = testb(value, 3);
+    gpu_sprite_size = testb(value, 2);
+    gpu_sprite_enable = testb(value, 1);
+    gpu_bg_enable = testb(value, 0);
+  } else {
+    printf("warn: unhandled write to GPU register: $%04X ($%02X)\n",
+      address, value);
+  }
+}
+
+def gpu_dump_tile(tile: uint8) {
+  let stream = fopen("tile.txt", "wb");
+
+  let y = 0;
+  while y < 8 {
+    let x = 0;
+    while x < 8 {
+      fprintf(stream, "%02x ",
+        *(*(*(gpu_tiles + tile) + y) + x)
+      );
+
+      x += 1;
+    }
+    fprintf(stream, "\n");
+    y += 1;
+  }
+
+  fclose(stream);
 }
 
 // =============================================================================
@@ -4353,16 +4628,19 @@ def execute() {
   let clk: float64 = 0;
   let clk_o = clock();
 
-  while true {
+  let cycles_cnt = 0;
+
+  while is_running {
     // Get elapsed seconds (from start of loop)
     clk += float64(clock() - clk_o) / float64(CLOCKS_PER_SEC);
     clk_o = clock();
 
-    // IF clk is <0; sleep for awhile
+    // IF clk is <0; sleep
     if clk < 0 { sleep(0); continue; }
 
     // STEP -> CPU
     let cycles = cpu_step();
+    cycles_cnt += 1;
 
     // Reduce clk by cycles taken
 
@@ -4404,6 +4682,152 @@ def execute() {
       }
 
       IME = false;
+    }
+
+    // A single frame takes at least 70224 cycles to render
+    if cycles_cnt >= 70224 {
+      sdl_step();
+      cycles_cnt = 0;
+    }
+  }
+}
+
+// =============================================================================
+// [SD] SDL
+// =============================================================================
+
+extern def SDL_Init(flags: uint32): c_int;
+extern def SDL_Quit();
+
+extern def SDL_CreateWindow(
+  title: str,
+  x: c_int, y: c_int,
+  width: c_int, height: c_int,
+  flags: uint32
+): *uint8;
+
+extern def SDL_CreateRenderer(window: *uint8, index: c_int, flags: uint32): *uint8;
+
+extern def SDL_DestroyWindow(window: *uint8);
+extern def SDL_DestroyRenderer(renderer: *uint8);
+
+extern def SDL_RenderClear(renderer: *uint8);
+extern def SDL_SetRenderDrawColor(renderer: *uint8, r: uint8, g: uint8, b: uint8, a: uint8);
+extern def SDL_RenderDrawPoint(renderer: *uint8, x: c_int, y: c_int);
+extern def SDL_RenderPresent(renderer: *uint8);
+
+extern def SDL_Delay(ms: uint32);
+
+extern def SDL_PollEvent(evt: *uint8): bool;
+
+let SDL_INIT_VIDEO: uint32 = 0x00000020;
+
+let SDL_WINDOW_SHOWN: uint32 = 0x00000004;
+
+let SDL_RENDERER_ACCELERATED: uint32 = 0x00000002;
+let SDL_RENDERER_PRESENTVSYNC: uint32 = 0x00000004;
+
+let _evt: *uint8;
+let _window: *uint8;
+let _renderer: *uint8;
+
+def sdl_init() {
+  // HACK!! We need structs
+  _evt = malloc(1000);
+
+  // Initialize SDL
+  SDL_Init(SDL_INIT_VIDEO);
+
+  // Create Window
+  // TODO: Allow scaling
+  _window = SDL_CreateWindow(
+    "Wadatsumi", 0x1FFF0000, 0x1FFF0000, 160, 144, SDL_WINDOW_SHOWN);
+
+  // Create renderer
+  _renderer = SDL_CreateRenderer(_window, -1,
+    SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+}
+
+def sdl_fini() {
+  free(_evt);
+
+  SDL_DestroyWindow(_window);
+  SDL_DestroyRenderer(_renderer);
+  SDL_Quit();
+}
+
+def sdl_render() {
+  // Render
+  SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
+  SDL_RenderClear(_renderer);
+
+  // Screen is 160x144
+  let y = 0;
+
+  while y < 144 {
+    let x = 0;
+
+    while x < 160 {
+      let pixel = *(gpu_framebuffer + (y * 160 + x));
+
+      if pixel == 0 {
+        SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
+      } else if pixel == 1 {
+        SDL_SetRenderDrawColor(_renderer, 192, 192, 192, 255);
+      } else if pixel == 2 {
+        SDL_SetRenderDrawColor(_renderer, 96, 96, 96, 255);
+      } else if pixel == 3 {
+        SDL_SetRenderDrawColor(_renderer, 0, 0, 0, 255);
+      }
+
+      SDL_RenderDrawPoint(_renderer, c_int(x), c_int(y));
+
+      x += 1;
+    }
+
+    y += 1;
+  }
+
+  // A tile is 8x8
+
+  // Render first tile
+  // let i = 0;
+  // while i < 16 {
+  //   let x = 0;
+  //   while x < 8 {
+  //     let y = 0;
+  //     while y < 8 {
+  //       let pixel = *(*(*(gpu_tiles + i) + y) + x);
+  //
+  //       if pixel == 0 {
+  //         SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
+  //       } else {
+  //         SDL_SetRenderDrawColor(_renderer, 0, 0, 0, 255);
+  //       }
+  //
+  //       SDL_RenderDrawPoint(_renderer, c_int(i * 8 + x), c_int(y));
+  //
+  //       y += 1;
+  //     }
+  //     x += 1;
+  //   }
+  //   i += 1;
+  // }
+
+  SDL_RenderPresent(_renderer);
+}
+
+def sdl_step() {
+  // Render
+  sdl_render();
+
+  // Events
+  while SDL_PollEvent(_evt) {
+    let evt_type = *(_evt as *uint32);
+    if evt_type == 0x100 {
+      // Quit – App was asked to quit (nicely)
+      is_running = false;
+      return;
     }
   }
 }
