@@ -55,42 +55,10 @@ let H: *uint8 = (&HL as *uint8) + 1;
 let L: *uint8 = (&HL as *uint8) + 0;
 let SP: uint16 = 0;
 
-def main() {
+def main(argc: int32, argv: *str, environ: *str) {
   init();
 
-  // open_rom("./bgblogo.gb");
-
-  // open_rom("./missile-command.gb");
-  open_rom("./tetris.gb");
-  // open_rom("./opus5.gb");
-  // open_rom("./dr-mario.gb");
-  // open_rom("./boxxle.gb");
-  // open_rom("./super-mario-land.gb");
-  // open_rom("./asteroids.gb");
-  // open_rom("./dragon-slayer.gb");
-
-  // Are you sure it's executing correctly? You can test the blargg ROM
-  // without any graphics by storing the last byte written to 0xFF01 and
-  // printing the ASCII character written there to a console window if
-  // the byte 0x81 is written to 0xFF02. Also, the main test Roms
-  // won't execute properly without MBC1 support, but the individual
-  // Roms will work fine.
-
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/02-interrupts.gb");
-
-  // PASS
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/01-special.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/03-op sp,hl.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/04-op r,imm.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/06-ld r,r.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/07-jr,jp,call,ret,rst.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/08-misc instrs.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/09-op r,r.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
-  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/11-op a,(hl).gb");
-
-  // open_rom("../gb-test-roms/halt_bug.gb");
+  open_rom(*(argv + 1));
 
   dump_rom();
 
@@ -101,7 +69,7 @@ def main() {
   fini();
 }
 
-main();
+// main();
 
 def init() {
   sdl_init();
@@ -337,8 +305,8 @@ def mmu_write8(address: uint16, value: uint8) {
   // Video RAM: $8000 – $9FFF
   if (address & 0xF000) <= 0x9000 {
     // VRAM can be accessed as long as we're not mode 3
-    let mode = mmu_read8(0xFF41) & 3;
-    if mode == 3 { return; }
+    // let mode = mmu_read8(0xFF41) & 3;
+    // if mode == 3 { return; }
 
     // GPU VRAM
     *(vram + (address & 0x1FFF)) = value;
