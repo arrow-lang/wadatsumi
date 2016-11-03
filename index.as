@@ -60,7 +60,8 @@ def main() {
 
   // open_rom("./missile-command.gb");
   // open_rom("./tetris.gb");
-  // open_rom("./dr-mario.gb");
+  // open_rom("./opus5.gb");
+  open_rom("./dr-mario.gb");
   // open_rom("./boxxle.gb");
   // open_rom("./super-mario-land.gb");
 
@@ -71,10 +72,10 @@ def main() {
   // won't execute properly without MBC1 support, but the individual
   // Roms will work fine.
 
-  open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/01-special.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/02-interrupts.gb");
 
   // PASS
+  // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/01-special.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/03-op sp,hl.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/04-op r,imm.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/05-op rp.gb");
@@ -84,6 +85,8 @@ def main() {
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/09-op r,r.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/11-op a,(hl).gb");
+
+  // open_rom("../gb-test-roms/halt_bug.gb");
 
   dump_rom();
 
@@ -365,6 +368,12 @@ def mmu_write8(address: uint16, value: uint8) {
     return;
   }
 
+  // GPU Register
+  if (address & 0xF0) >= 0x40 and (address & 0xF0) <= 0x70 {
+    gpu_write(address, value);
+    return;
+  }
+
   // Sound Register
   if (
     (address >= 0xFF10 and address <= 0xFF14) or
@@ -372,12 +381,8 @@ def mmu_write8(address: uint16, value: uint8) {
     (address >= 0xFF20 and address <= 0xFF26) or
     (address >= 0xFF30 and address <= 0xFF3F)
   ) {
-    return sound_write(address, value);
-  }
-
-  // GPU Register
-  if (address & 0xF0) >= 0x40 and (address & 0xF0) <= 0x70 {
-    return gpu_write(address, value);
+    sound_write(address, value);
+    return;
   }
 
   // SB – Serial Transfer Data (R/W)
@@ -4301,12 +4306,19 @@ def cpu_reset() {
 
 def cpu_step(): uint8 {
   // IF HALT; just return 4 (cycles)
-  if HALT {
+  if HALT and IME {
     return 4;
   }
 
   // Get next opcode
   let opcode = mmu_next8();
+
+  // If HALT but interrupts are disabled
+  // FIXME: Trying to recreate the HALT bug -- still not broken the right way
+  if HALT {
+    PC -= 1;
+    HALT = false;
+  }
 
   // Check if valid/known instruction
   if *((optable as *int64) + opcode) == 0 {
@@ -4337,6 +4349,7 @@ def sound_write(address: uint16, value: uint8) {
 let gpu_mode: uint8;
 let gpu_mode_clock: uint16;
 let gpu_line: uint8;
+let gpu_line_compare: uint8;
 
 let gpu_lcd_enable: bool;
 let gpu_window_enable: bool;
@@ -4362,6 +4375,9 @@ let gpu_framebuffer: *uint8;
 // Scrolling
 let gpu_scy = 0;
 let gpu_scx = 0;
+
+// Palette
+let gpu_palette: uint8 = 0;
 
 def gpu_init() {
   gpu_framebuffer = malloc(160 * 144);
@@ -4447,7 +4463,6 @@ def gpu_render_scanline() {
 
   // Move to the selected line (to be rendered) and scroll Y
   mapo += (((int64(gpu_line) + int64(gpu_scy)) & 255) >> 3) << 5;
-  // mapo += ((int64(gpu_line) + int64(gpu_scy)) & 0xFF) >> 3;
 
   // Tile line offset (X-scrolling)
   let lineo = gpu_scx >> 3;
@@ -4463,25 +4478,26 @@ def gpu_render_scanline() {
 
   // Iterate through the entire tile-line
   let tile = int16(*(vram + mapo + lineo));
-  // printf("gpu_td_select: %d\n", gpu_td_select);
-  if gpu_td_select and tile < 128 { tile += 256; }
+  if not gpu_td_select and tile < 128 { tile += 256; }
 
   let i = 0;
   while i < 160 {
+    // Tile Color Index
+    let color = *(*(*(gpu_tiles + tile) + y) + x);
+
+    // Palette
+    color = (gpu_palette >> (color * 2)) & 0x3;
+
     // Push pixel to framebuffer
-    *(gpu_framebuffer + fbo + i) = *(*(*(gpu_tiles + tile) + y) + x);
-    // *(gpu_framebuffer + fbo + i) = 1;
+    *(gpu_framebuffer + fbo + i) = color;
 
     x += 1;
     if (x == 8) {
       // Tile ends; pick a new one
       x = 0;
-      // mapo += 1;
-      lineo += 1;
-      lineo &= 31;
+      lineo = (lineo + 1) & 31;
       tile = int16(*(vram + mapo + lineo));
-      // lineo = (lineo + 1) & 31;
-      if gpu_td_select and tile < 128 { tile += 256; }
+      if not gpu_td_select and tile < 128 { tile += 256; }
     }
 
     i += 1;
@@ -4557,6 +4573,12 @@ def gpu_read(address: uint16): uint8 {
   } else if address == 0xFF44 {
     // LY – LCDC Y-Coordinate (R)
     return gpu_line;
+  } else if address == 0xFF45 {
+    // LYC – LY Compare (R/W)
+    return gpu_line_compare;
+  } else if address == 0xFF47 {
+    // BGP – Background Palette (R/W)
+    return gpu_palette;
   }
 
   printf("warn: unhandled read from GPU register: $%04X\n", address);
@@ -4574,6 +4596,18 @@ def gpu_write(address: uint16, value: uint8) {
     gpu_sprite_size = testb(value, 2);
     gpu_sprite_enable = testb(value, 1);
     gpu_bg_enable = testb(value, 0);
+  } else if address == 0xFF42 {
+    // SCY – Scroll Y (R/W)
+    gpu_scy = value;
+  } else if address == 0xFF43 {
+    // SCX – Scroll X (R/W)
+    gpu_scx = value;
+  } else if address == 0xFF45 {
+    // LYC – LY Compare (R/W)
+    gpu_line_compare = value;
+  } else if address == 0xFF47 {
+    // BGP – Background Palette (R/W)
+    gpu_palette = value;
   } else {
     printf("warn: unhandled write to GPU register: $%04X ($%02X)\n",
       address, value);
@@ -4732,7 +4766,8 @@ def sdl_init() {
     SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
   // White initial screen
-  SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
+  SDL_SetRenderDrawColor(_renderer, 155, 188, 15, 255);
+  // SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
   SDL_RenderClear(_renderer);
   SDL_RenderPresent(_renderer);
 }
@@ -4747,7 +4782,8 @@ def sdl_fini() {
 
 def sdl_render() {
   // Render
-  SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
+  SDL_SetRenderDrawColor(_renderer, 155, 188, 15, 255);
+  // SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
   SDL_RenderClear(_renderer);
 
   // Screen is 160x144
@@ -4759,14 +4795,24 @@ def sdl_render() {
     while x < 160 {
       let pixel = *(gpu_framebuffer + (y * 160 + x));
 
+      // if pixel == 0 {
+      //   SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
+      // } else if pixel == 1 {
+      //   SDL_SetRenderDrawColor(_renderer, 192, 192, 192, 255);
+      // } else if pixel == 2 {
+      //   SDL_SetRenderDrawColor(_renderer, 96, 96, 96, 255);
+      // } else if pixel == 3 {
+      //   SDL_SetRenderDrawColor(_renderer, 0, 0, 0, 255);
+      // }
+
       if pixel == 0 {
-        SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
+        SDL_SetRenderDrawColor(_renderer, 155, 188, 15, 255);
       } else if pixel == 1 {
-        SDL_SetRenderDrawColor(_renderer, 192, 192, 192, 255);
+        SDL_SetRenderDrawColor(_renderer, 139, 179, 15, 255);
       } else if pixel == 2 {
-        SDL_SetRenderDrawColor(_renderer, 96, 96, 96, 255);
+        SDL_SetRenderDrawColor(_renderer, 48, 98, 48, 255);
       } else if pixel == 3 {
-        SDL_SetRenderDrawColor(_renderer, 0, 0, 0, 255);
+        SDL_SetRenderDrawColor(_renderer, 15, 65, 15, 255);
       }
 
       SDL_RenderDrawPoint(_renderer, c_int(x), c_int(y));
