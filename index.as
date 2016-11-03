@@ -58,12 +58,16 @@ let SP: uint16 = 0;
 def main() {
   init();
 
+  // open_rom("./bgblogo.gb");
+
   // open_rom("./missile-command.gb");
-  // open_rom("./tetris.gb");
+  open_rom("./tetris.gb");
   // open_rom("./opus5.gb");
   // open_rom("./dr-mario.gb");
   // open_rom("./boxxle.gb");
   // open_rom("./super-mario-land.gb");
+  // open_rom("./asteroids.gb");
+  // open_rom("./dragon-slayer.gb");
 
   // Are you sure it's executing correctly? You can test the blargg ROM
   // without any graphics by storing the last byte written to 0xFF01 and
@@ -86,7 +90,7 @@ def main() {
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/11-op a,(hl).gb");
 
-  open_rom("../gb-test-roms/halt_bug.gb");
+  // open_rom("../gb-test-roms/halt_bug.gb");
 
   dump_rom();
 
@@ -244,13 +248,17 @@ def mmu_read8(address: uint16): uint8 {
 
   // Video RAM: $8000 – $9FFF
   if (address & 0xF000) <= 0x9000 {
+    // VRAM can be accessed as long as we're not mode 3
+    // let mode = mmu_read8(0xFF41) & 3;
+    // if mode == 3 { return 0xFF; }
+
     return *(vram + (address & 0x1FFF));
   }
 
   // External RAM: $A000 – $BFFF
   if (address & 0xF000) <= 0xB000 {
     printf("warn: unhandled read from external ram: $%04X\n", address);
-    return 0;
+    return 0xFF;
   }
 
   // Work RAM: $C000 – $DFFF
@@ -267,7 +275,7 @@ def mmu_read8(address: uint16): uint8 {
   // Unusable
   if (address <= 0xFEFF) {
     // Not connected to anything
-    return 0;
+    return 0xFF;
   }
 
   // High RAM (HRAM): $FF80 – $FFFE
@@ -291,7 +299,7 @@ def mmu_read8(address: uint16): uint8 {
     return IE;
   }
 
-  printf("warn: unhandled read from memory: $%04X\n", address);
+  // printf("warn: unhandled read from memory: $%04X\n", address);
   return 0;
 }
 
@@ -323,12 +331,15 @@ def mmu_next16(): uint16 {
 def mmu_write8(address: uint16, value: uint8) {
   // ROM: $0000 – $7FFF
   if (address & 0xF000) <= 0x7000 {
-    *(rom + address) = value;
     return;
   }
 
   // Video RAM: $8000 – $9FFF
   if (address & 0xF000) <= 0x9000 {
+    // VRAM can be accessed as long as we're not mode 3
+    let mode = mmu_read8(0xFF41) & 3;
+    if mode == 3 { return; }
+
     // GPU VRAM
     *(vram + (address & 0x1FFF)) = value;
 
@@ -405,7 +416,7 @@ def mmu_write8(address: uint16, value: uint8) {
     return;
   }
 
-  printf("warn: unhandled write to memory: $%04X ($%02X)\n", address, value);
+  // printf("warn: unhandled write to memory: $%04X ($%02X)\n", address, value);
   // exit(-1);
 }
 
@@ -4390,6 +4401,7 @@ let gpu_tiles: ***uint8;
 
 // Framebuffer
 let gpu_framebuffer: *uint8;
+let framebuffer: *uint32;
 
 // Scrolling
 let gpu_scy = 0;
@@ -4402,9 +4414,12 @@ def gpu_init() {
   gpu_framebuffer = malloc(160 * 144);
   memset(gpu_framebuffer, 0, 160 * 144);
 
-  gpu_tiles = malloc(384 * 8) as ***uint8;
+  framebuffer = malloc(160 * 144 * 4) as *uint32;
+  memset(framebuffer as *uint8, 0, 160 * 144 * 4);
+
+  gpu_tiles = malloc(512 * 8) as ***uint8;
   let i = 0;
-  while i < 384 {
+  while i < 512 {
     *(gpu_tiles + i) = malloc(8 * 8) as **uint8;
     let x = 0;
     while x < 8 {
@@ -4418,7 +4433,7 @@ def gpu_init() {
 
 def gpu_fini() {
   let i = 0;
-  while i < 384 {
+  while i < 512 {
     let x = 0;
     while x < 8 {
       free(*(*(gpu_tiles + i) + x));
@@ -4430,18 +4445,18 @@ def gpu_fini() {
 
   free(gpu_tiles as *uint8);
   free(gpu_framebuffer);
+  free(framebuffer as *uint8);
 }
 
 def gpu_update_tile(address: uint16, value: uint8) {
   // VRAM is 0x8000 – 0x9FFF (0x0000 – 0x1FFF)
   // Tile Data is 0x8000 – 0x17FF
   address &= 0x1FFE;
+  if address > 0x17FF { return; }
 
   // Determine the tile (and row of it)
   let tile = (address >> 4) & 0x1FF;
   let y = (address >> 1) & 0x7;
-
-  if tile >= 384 { return; }
 
   let x: uint8 = 0;
   while x < 8 {
@@ -4455,6 +4470,12 @@ def gpu_update_tile(address: uint16, value: uint8) {
     let hi = if testb(n1, 7 - x) { 2; } else { 0; };
 
     let color = lo | hi;
+
+    if tile == 0 {
+      if value == 0 {
+        break;
+      }
+    }
 
     // Update tile
     // 0 = Off
@@ -4474,57 +4495,108 @@ def gpu_reset() {
 }
 
 def gpu_render_scanline() {
-  // Background: Tile Map (in VRAM)
-  let mapo: int64 = if (gpu_bg_tm_select) { 0x1C00; } else { 0x1800; };
+  // if not gpu_lcd_enable {
+  //   return;
+  // }
+  //
+  // if gpu_window_enable {
+  //   printf("WINDOW IS ENABLED\n");
+  // }
+  //
+  // if not gpu_bg_enable {
+  //   // Background not enabled; turn off all pixels on this line
+  //   // let i = 0;
+  //   // while i < 160 {
+  //   //   *(gpu_framebuffer + uint32(gpu_line) * 160 + i) = 0;
+  //   //
+  //   //   i += 1;
+  //   // }
+  //
+  //   return;
+  // }
 
-  // 1-byte per tile index in the tile map
-  // A tile map is 32x32
+  // Line (to be rendered)
+  // With a high SCY value, the line wraps around
+  let line = (int64(gpu_line) + int64(gpu_scy)) & 0xFF;
 
-  // Move to the selected line (to be rendered) and scroll Y
-  mapo += (((int64(gpu_line) + int64(gpu_scy)) & 255) >> 3) << 5;
+  // Tile Map (Offset)
+  // The tile map is 32x32 (1024 bytes) and is an index into the tile data
+  // A single tile map cell corresponds to an 8x8 cell in the framebuffer
+  //  map 0 ~ line 0..7
+  //  map 31 ~ line 8..13
+  let map: int64 = if (gpu_bg_tm_select) { 0x1C00; } else { 0x1800; };
+  map += (line >> 3) << 5;
 
-  // Tile line offset (X-scrolling)
-  let lineo = gpu_scx >> 3;
-
-  // Pixel line offset (in tiles)
-  let y = (gpu_line + gpu_scy) & 7;
-
-  // Pixel X offset (in tileline)
-  let x = gpu_scx & 7;
-
-  // Framebuffer offset
-  let fbo = uint32(gpu_line) * 160;
-
-  // Iterate through the entire tile-line
-  let tile = int16(*(vram + mapo + lineo));
-  if not gpu_td_select and tile < 128 { tile += 256; }
+  let i: int64 = 0;
+  let x = gpu_scx % 8;
+  let offset = int64(gpu_scx) >> 3;
+  let y = line % 8;
 
   let i = 0;
   while i < 160 {
-    // Tile Color Index
-    let color = *(*(*(gpu_tiles + tile) + y) + x);
-
-    // Palette
-    color = (gpu_palette >> (color * 2)) & 0x3;
-
-    // Push pixel to framebuffer
-    *(gpu_framebuffer + fbo + i) = color;
-
-    x += 1;
     if (x == 8) {
-      // Tile ends; pick a new one
+      // New Tile
       x = 0;
-      lineo = (lineo + 1) & 31;
-      tile = int16(*(vram + mapo + lineo));
-      if not gpu_td_select and tile < 128 { tile += 256; }
+      offset = (offset + 1) % 32;
     }
 
+    // Tile Map
+    let tile: int16;
+    if gpu_td_select {
+      tile = int16(uint8(*(vram + map + offset)));
+    } else {
+      tile = int16(int8(*(vram + map + offset))) + 256;
+    }
+
+    // Tile Data
+    let pixel = *(*(*(gpu_tiles + tile) + y) + x);
+
+    // Palette
+    let color = (gpu_palette >> (pixel * 2)) & 0x3;
+
+    // Push pixel to framebuffer
+    *(gpu_framebuffer + (int64(gpu_line) * 160) + i) = color;
+
+    x += 1;
     i += 1;
   }
 }
 
-def gpu_step(cycles: uint8) {
+def gpu_present() {
+  // Screen is 160x144
+  let y = 0;
+
+  while y < 144 {
+    let x = 0;
+
+    while x < 160 {
+      let pixel = *(gpu_framebuffer + (y * 160 + x));
+
+      // AARRGGBB
+      let color: uint32 = if pixel == 0 {
+        0xFF9BBC0F;
+      } else if pixel == 1 {
+        0xFF8BB30F;
+      } else if pixel == 2 {
+        0xFF306230;
+      } else if pixel == 3 {
+        0xFF0F410F;
+      } else {
+        0;
+      };
+
+      *(framebuffer + (y * (160) + x)) = color;
+
+      x += 1;
+    }
+
+    y += 1;
+  }
+}
+
+def gpu_step(cycles: uint8): bool {
   gpu_mode_clock += uint16(cycles);
+  let vblank_begin = false;
 
   if gpu_mode == 2 {
     // Scanline: OAM read mode
@@ -4548,6 +4620,7 @@ def gpu_step(cycles: uint8) {
 
       if gpu_line == 143 {
         gpu_mode = 1;
+        vblank_begin = true;
 
         // TODO: VBLANK Interrupt
         IF |= 0x01;
@@ -4561,14 +4634,19 @@ def gpu_step(cycles: uint8) {
     // VBLANK
     if gpu_mode_clock >= 456 {
       gpu_mode_clock -= 456;
-      gpu_line += 1;
 
-      if gpu_line > 153 {
+      if gpu_line == 0 {
         gpu_line = 0;
         gpu_mode = 2;
+      } else {
+        gpu_line += 1;
       }
+    } else if gpu_line == 153 {
+      gpu_line = 0;
     }
   }
+
+  return vblank_begin;
 }
 
 def gpu_read(address: uint16): uint8 {
@@ -4600,14 +4678,14 @@ def gpu_read(address: uint16): uint8 {
     return gpu_palette;
   }
 
-  printf("warn: unhandled read from GPU register: $%04X\n", address);
+  // printf("warn: unhandled read from GPU register: $%04X\n", address);
   return 0;
 }
 
 def gpu_write(address: uint16, value: uint8) {
   if address == 0xFF40 {
     // LCDC - LCD Control (R/W)
-    gpu_lcd_enable = testb(value, 7 );
+    gpu_lcd_enable = testb(value, 7);
     gpu_window_tm_select = testb(value, 6);
     gpu_window_enable = testb(value, 5);
     gpu_td_select = testb(value, 4);
@@ -4628,13 +4706,13 @@ def gpu_write(address: uint16, value: uint8) {
     // BGP – Background Palette (R/W)
     gpu_palette = value;
   } else {
-    printf("warn: unhandled write to GPU register: $%04X ($%02X)\n",
-      address, value);
+    // printf("warn: unhandled write to GPU register: $%04X ($%02X)\n",
+      // address, value);
   }
 }
 
-def gpu_dump_tile(tile: uint8) {
-  let stream = fopen("tile.txt", "wb");
+def gpu_dump_tile(filename: str, tile: uint8) {
+  let stream = fopen(filename, "wb");
 
   let y = 0;
   while y < 8 {
@@ -4658,38 +4736,12 @@ def gpu_dump_tile(tile: uint8) {
 // =============================================================================
 def execute() {
   // TODO: Method to stop/pause/etc.
-
-  let clk: float64 = 0;
-  let clk_o = clock();
-
-  let cycles_cnt = 0;
-
   while is_running {
-    // Poll window events
-    sdl_step();
-
-    // Get elapsed seconds (from start of loop)
-    clk += float64(clock() - clk_o) / float64(CLOCKS_PER_SEC);
-    clk_o = clock();
-
-    // IF clk is <0; sleep
-    if clk < 0 { sleep(0); continue; }
-
     // STEP -> CPU
     let cycles = cpu_step();
-    cycles_cnt += 1;
-
-    // Reduce clk by cycles taken
-
-    // Clock speed is 4.194304MHz (4194304 Hz)
-    // 1 Hz ~= 1 cycle PER second
-    // 4194304 Hz ~= 4194304 PER second
-    // 1 cycle ~= 0.000000238418579 seconds
-
-    clk -= (float64(cycles) * 0.000000238418579);
 
     // STEP -> GPU
-    gpu_step(cycles);
+    let vblank_begin = gpu_step(cycles);
 
     // STEP -> Interrupts
     if IME and (IE > 0) and (IF > 0) {
@@ -4721,10 +4773,20 @@ def execute() {
       IME = false;
     }
 
-    // A single frame takes at least 70224 cycles to render
-    if cycles_cnt >= 70224 {
+    if vblank_begin {
+      let begin = clock();
+
+      // Rasterize framebuffer
+      gpu_present();
+
+      // Poll window events
+      sdl_step();
+
+      // Blit pixels
       sdl_render();
-      cycles_cnt = 0;
+
+      let end = clock();
+      let elapsed = float64(end - begin) / float64(CLOCKS_PER_SEC);
     }
   }
 }
@@ -4744,18 +4806,25 @@ extern def SDL_CreateWindow(
 ): *uint8;
 
 extern def SDL_CreateRenderer(window: *uint8, index: c_int, flags: uint32): *uint8;
+extern def SDL_CreateTexture(renderer: *uint8, format: uint32, access: c_int, w: c_int, h: c_int): *uint8;
 
 extern def SDL_DestroyWindow(window: *uint8);
 extern def SDL_DestroyRenderer(renderer: *uint8);
+extern def SDL_DestroyTexture(texture: *uint8);
 
 extern def SDL_RenderClear(renderer: *uint8);
 extern def SDL_SetRenderDrawColor(renderer: *uint8, r: uint8, g: uint8, b: uint8, a: uint8);
 extern def SDL_RenderDrawPoint(renderer: *uint8, x: c_int, y: c_int);
 extern def SDL_RenderPresent(renderer: *uint8);
+extern def SDL_RenderCopy(renderer: *uint8, texture: *uint8, src: *uint8, dst: *uint8);
+
+extern def SDL_UpdateTexture(texture: *uint8, rect: *uint8, pixels: *uint8, pitch: c_int);
 
 extern def SDL_Delay(ms: uint32);
 
 extern def SDL_PollEvent(evt: *uint8): bool;
+
+let SDL_TEXTUREACCESS_STREAMING: c_int = 1;
 
 let SDL_INIT_VIDEO: uint32 = 0x00000020;
 
@@ -4764,8 +4833,11 @@ let SDL_WINDOW_SHOWN: uint32 = 0x00000004;
 let SDL_RENDERER_ACCELERATED: uint32 = 0x00000002;
 let SDL_RENDERER_PRESENTVSYNC: uint32 = 0x00000004;
 
+let SDL_PIXELFORMAT_ARGB8888: uint32 = 372645892;
+
 let _evt: *uint8;
 let _window: *uint8;
+let _tex: *uint8;
 let _renderer: *uint8;
 
 def sdl_init() {
@@ -4778,24 +4850,31 @@ def sdl_init() {
   // Create Window
   // TODO: Allow scaling
   _window = SDL_CreateWindow(
-    "Wadatsumi", 0x1FFF0000, 0x1FFF0000, 160, 144, SDL_WINDOW_SHOWN);
+    "Wadatsumi", 0x1FFF0000, 0x1FFF0000, 160 * 4, 144 * 4, SDL_WINDOW_SHOWN);
 
   // Create renderer
   _renderer = SDL_CreateRenderer(_window, -1,
-    SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    SDL_RENDERER_ACCELERATED);
 
   // White initial screen
   SDL_SetRenderDrawColor(_renderer, 155, 188, 15, 255);
   // SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
   SDL_RenderClear(_renderer);
   SDL_RenderPresent(_renderer);
+
+  // Create texture
+  _tex = SDL_CreateTexture(_renderer,
+    SDL_PIXELFORMAT_ARGB8888,
+    SDL_TEXTUREACCESS_STREAMING,
+    160, 144);
 }
 
 def sdl_fini() {
   free(_evt);
 
-  SDL_DestroyWindow(_window);
   SDL_DestroyRenderer(_renderer);
+  SDL_DestroyWindow(_window);
+  SDL_DestroyTexture(_tex);
   SDL_Quit();
 }
 
@@ -4805,42 +4884,8 @@ def sdl_render() {
   // SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
   SDL_RenderClear(_renderer);
 
-  // Screen is 160x144
-  let y = 0;
-
-  while y < 144 {
-    let x = 0;
-
-    while x < 160 {
-      let pixel = *(gpu_framebuffer + (y * 160 + x));
-
-      // if pixel == 0 {
-      //   SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
-      // } else if pixel == 1 {
-      //   SDL_SetRenderDrawColor(_renderer, 192, 192, 192, 255);
-      // } else if pixel == 2 {
-      //   SDL_SetRenderDrawColor(_renderer, 96, 96, 96, 255);
-      // } else if pixel == 3 {
-      //   SDL_SetRenderDrawColor(_renderer, 0, 0, 0, 255);
-      // }
-
-      if pixel == 0 {
-        SDL_SetRenderDrawColor(_renderer, 155, 188, 15, 255);
-      } else if pixel == 1 {
-        SDL_SetRenderDrawColor(_renderer, 139, 179, 15, 255);
-      } else if pixel == 2 {
-        SDL_SetRenderDrawColor(_renderer, 48, 98, 48, 255);
-      } else if pixel == 3 {
-        SDL_SetRenderDrawColor(_renderer, 15, 65, 15, 255);
-      }
-
-      SDL_RenderDrawPoint(_renderer, c_int(x), c_int(y));
-
-      x += 1;
-    }
-
-    y += 1;
-  }
+  SDL_UpdateTexture(_tex, 0 as *uint8, framebuffer as *uint8, 160 * 4);
+  SDL_RenderCopy(_renderer, _tex, 0 as *uint8, 0 as *uint8);
 
   SDL_RenderPresent(_renderer);
 }
