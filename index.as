@@ -61,7 +61,7 @@ def main() {
   // open_rom("./missile-command.gb");
   // open_rom("./tetris.gb");
   // open_rom("./opus5.gb");
-  open_rom("./dr-mario.gb");
+  // open_rom("./dr-mario.gb");
   // open_rom("./boxxle.gb");
   // open_rom("./super-mario-land.gb");
 
@@ -86,7 +86,7 @@ def main() {
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/10-bit ops.gb");
   // open_rom("/Users/mehcode/Workspace/gb-test-roms/cpu_instrs/individual/11-op a,(hl).gb");
 
-  // open_rom("../gb-test-roms/halt_bug.gb");
+  open_rom("../gb-test-roms/halt_bug.gb");
 
   dump_rom();
 
@@ -284,7 +284,8 @@ def mmu_read8(address: uint16): uint8 {
 
   if address == 0xFF0F {
     // IF – Interrupt Flag (R/W)
-    return IF;
+    // NOTE: Unused bits are 1 in this register because who the fuck knows
+    return IF | 0xE0;
   } else if address == 0xFFFF {
     // IE – Interrupt Enable (R/W)
     return IE;
@@ -2244,7 +2245,17 @@ def op_75() {
 
 // [76] HALT
 def op_76() {
-  HALT = true;
+  if (not IME) and (IE & IF & 0x1F) != 0 {
+    cpu_skip = true;
+  } else {
+    HALT = true;
+  }
+
+  // } else {
+  //   if (IE & IF & 0x1F) != 0 {
+  //
+  //   }
+  // }
 }
 
 // [77] LD (HL), A
@@ -4238,6 +4249,8 @@ def op_CB_FF() {
 // =============================================================================
 // [CP] CPU
 // =============================================================================
+let cpu_skip;
+
 def cpu_init() {
   // Memory
   vram = malloc(0x2000);
@@ -4255,6 +4268,8 @@ def cpu_fini() {
 }
 
 def cpu_reset() {
+  cpu_skip = false;
+
   // CPU variables
   PC = 0x0100;
   SP = 0xFFFE;
@@ -4306,18 +4321,22 @@ def cpu_reset() {
 
 def cpu_step(): uint8 {
   // IF HALT; just return 4 (cycles)
-  if HALT and IME {
-    return 4;
+  if HALT {
+    if IME or (IE & IF & 0x1F) == 0 {
+      return 4;
+    } else {
+      HALT = false;
+    }
   }
 
   // Get next opcode
   let opcode = mmu_next8();
 
-  // If HALT but interrupts are disabled
-  // FIXME: Trying to recreate the HALT bug -- still not broken the right way
-  if HALT {
+  // BUG: Skip instruction when HALT happens with interrupts turned off
+  //      and a pending interrupt
+  if cpu_skip {
     PC -= 1;
-    HALT = false;
+    cpu_skip = false;
   }
 
   // Check if valid/known instruction
