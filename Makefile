@@ -13,4 +13,4 @@ build/wadatsumi.o: build/wadatsumi.ll
 build/wadatsumi.ll: index.as
 	@ mkdir -p build
 	@ # TODO: Add `-o` to arrow so we can avoid this hack
-	@ arrow --compile $^ > $@ || (rm $@; exit 1)
+	@ (arrow --compile $^ > $@ || (rm $@; exit 1)) && opt-3.8 -O3 -S -o $@ $@
