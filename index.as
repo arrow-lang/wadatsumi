@@ -4463,17 +4463,12 @@ def gpu_render_scanline() {
   //   printf("WINDOW IS ENABLED\n");
   // }
 
-  // if not gpu_bg_enable {
-  //   // Background not enabled; turn off all pixels on this line
-  //   // let i = 0;
-  //   // while i < 160 {
-  //   //   *(gpu_framebuffer + uint32(gpu_line) * 160 + i) = 0;
-  //   //
-  //   //   i += 1;
-  //   // }
-  //
-  //   return;
-  // }
+  if not gpu_bg_enable {
+    // Background not enabled
+    // FIXME: Should we do anything special here?
+
+    return;
+  }
 
   // Line (to be rendered)
   // With a high SCY value, the line wraps around
