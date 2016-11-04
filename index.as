@@ -222,9 +222,9 @@ def mmu_read8(address: uint16): uint8 {
 
   // Video RAM: $8000 – $9FFF
   if (address & 0xF000) <= 0x9000 {
-    // VRAM can be accessed as long as we're not mode 3
-    // let mode = mmu_read8(0xFF41) & 3;
-    // if mode == 3 { return 0xFF; }
+    // VRAM cannot be accessed in mode 3
+    let mode = mmu_read8(0xFF41) & 3;
+    if mode == 3 { return 0xFF; }
 
     return *(vram + (address & 0x1FFF));
   }
@@ -243,6 +243,10 @@ def mmu_read8(address: uint16): uint8 {
 
   // Sprite Attribute Table (OAM): $FE00 – $FE9F
   if (address >= 0xFE00) and (address <= 0xFE9F) {
+    // OAM cannot be accessed in modes 2 or 3
+    let mode = mmu_read8(0xFF41) & 3;
+    if mode == 3 or mode == 2 { return 0xFF; }
+
     return *(oam + (address & 0xFF));
   }
 
@@ -314,7 +318,7 @@ def mmu_write8(address: uint16, value: uint8) {
 
   // Video RAM: $8000 – $9FFF
   if (address & 0xF000) <= 0x9000 {
-    // VRAM can be accessed as long as we're not mode 3
+    // FIXME: VRAM cannot be accessed in mode 3
     // let mode = mmu_read8(0xFF41) & 3;
     // if mode == 3 { return; }
 
@@ -340,8 +344,11 @@ def mmu_write8(address: uint16, value: uint8) {
 
   // Sprite Attribute Table (OAM): $FE00 – $FE9F
   if (address >= 0xFE00) and (address <= 0xFE9F) {
-    // TODO: OAM
-    // *(oam + (address & 0xFF)) = value;
+    // FIXME: OAM cannot be accessed in modes 2 or 3
+    // let mode = mmu_read8(0xFF41) & 3;
+    // if mode == 3 or mode == 2 { return; }
+
+    *(oam + (address & 0xFF)) = value;
     return;
   }
 
@@ -4320,7 +4327,6 @@ def cpu_step(): uint8 {
   }
 
   // STEP -> Interrupts
-
   let irq = IF & IE;
   if IME and irq > 0 {
     om_push16(&PC);
@@ -4651,7 +4657,7 @@ def gpu_read(address: uint16): uint8 {
     return gpu_palette;
   }
 
-  // printf("warn: unhandled read from GPU register: $%04X\n", address);
+  printf("warn: unhandled read from GPU register: $%04X\n", address);
   return 0;
 }
 
@@ -4696,9 +4702,28 @@ def gpu_write(address: uint16, value: uint8) {
 let joy_sel_button = false;
 let joy_sel_direction = false;
 
+// 1 - Pressed
+let joy_state_start = false;
+let joy_state_sel = false;
+let joy_state_a = false;
+let joy_state_b = false;
+let joy_state_up = false;
+let joy_state_down = false;
+let joy_state_left = false;
+let joy_state_right = false;
+
 def joy_reset() {
   joy_sel_button = false;
   joy_sel_direction = false;
+
+  joy_state_start = false;
+  joy_state_sel = false;
+  joy_state_a = false;
+  joy_state_b = false;
+  joy_state_up = false;
+  joy_state_down = false;
+  joy_state_left = false;
+  joy_state_right = false;
 }
 
 def joy_write(address: uint16, value: uint8) {
@@ -4729,10 +4754,10 @@ def joy_read(address: uint16): uint8 {
       bit(true, 6) |
       bit(not joy_sel_button, 5) |
       bit(not joy_sel_direction, 4) |
-      bit(true, 3) |
-      bit(true, 2) |
-      bit(true, 1) |
-      bit(true, 0)
+      bit(not ((joy_sel_button and joy_state_start) or (joy_sel_direction and joy_state_down)), 3) |
+      bit(not ((joy_sel_button and joy_state_sel) or (joy_sel_direction and joy_state_up)), 2) |
+      bit(not ((joy_sel_button and joy_state_b) or (joy_sel_direction and joy_state_left)), 1) |
+      bit(not ((joy_sel_button and joy_state_a) or (joy_sel_direction and joy_state_right)), 0)
     );
   } else {
     printf("warn: unhandled read from Joypad register: $%04X\n", address);
@@ -4871,7 +4896,36 @@ def sdl_step() {
     if evt_type == 0x100 {
       // Quit – App was asked to quit (nicely)
       is_running = false;
-      return;
+    } else if evt_type == 0x300 or evt_type == 0x301 {
+      // Key Up/Down Event
+      let code = int64(*(((_evt as *uint8) + 16) as *c_int));
+      let pressed = (evt_type == 0x300);
+
+      if code == 40 {
+        // START => ENTER (US Keyboard)
+        joy_state_start = pressed;
+      } else if code == 29 {
+        // A => Z (US Keyboard)
+        joy_state_a = pressed;
+      } else if code == 27 {
+        // B => X (US Keyboard)
+        joy_state_b = pressed;
+      } else if code == 225 {
+        // SELECT => LEFT SHIFT (US Keyboard)
+        joy_state_sel = pressed;
+      } else if code == 82 {
+        // UP => UP ARROW (US Keyboard)
+        joy_state_up = pressed;
+      } else if code == 81 {
+        // DOWN => DOWN ARROW (US Keyboard)
+        joy_state_down = pressed;
+      } else if code == 80 {
+        // LEFT => LEFT ARROW (US Keyboard)
+        joy_state_left = pressed;
+      } else if code == 79 {
+        // RIGHT => RIGHT ARROW (US Keyboard)
+        joy_state_right = pressed;
+      }
     }
   }
 }
