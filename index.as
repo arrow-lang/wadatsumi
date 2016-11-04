@@ -259,9 +259,9 @@ def mmu_read8(address: uint16): uint8 {
 
   // I/O Ports
 
-  // if address == 0xFF00 {
-  //   return joy_read(address);
-  // }
+  if address == 0xFF00 {
+    return joy_read(address);
+  }
 
   if (address & 0xF0) >= 0x40 and (address & 0xF0) <= 0x70 {
     // GPU Register
@@ -358,10 +358,10 @@ def mmu_write8(address: uint16, value: uint8) {
     return;
   }
 
-  // if address == 0xFF00 {
-  //   joy_write(address, value);
-  //   return;
-  // }
+  if address == 0xFF00 {
+    joy_write(address, value);
+    return;
+  }
 
   // GPU Register
   if (address & 0xF0) >= 0x40 and (address & 0xF0) <= 0x70 {
@@ -4246,10 +4246,10 @@ def cpu_init() {
   oam = malloc(160);
   hram = malloc(127);
 
-  // memset(vram, 0, 0x2000);
-  // memset(wram, 0, 0x2000);
-  // memset(oam, 0, 160);
-  // memset(hram, 0, 127);
+  memset(vram, 0, 0x2000);
+  memset(wram, 0, 0x2000);
+  memset(oam, 0, 160);
+  memset(hram, 0, 127);
 }
 
 def cpu_fini() {
@@ -4616,7 +4616,7 @@ def gpu_step(cycles: uint8): bool {
       } else {
         gpu_line += 1;
       }
-    } else if gpu_line == 153 and gpu_mode_clock >= 56 {
+    } else if gpu_line == 153 and gpu_mode_clock >= 4 {
       gpu_line = 0;
     }
   }
@@ -4732,7 +4732,6 @@ def joy_read(address: uint16): uint8 {
     // Bit 0 - P10 Input Right or Button A (0=Pressed) (Read Only)
 
     // NOTE: This is backwards logic to me. 0 = True ?
-
     return (
       bit(true, 7) |
       bit(true, 6) |
