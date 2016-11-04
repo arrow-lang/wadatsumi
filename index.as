@@ -326,7 +326,7 @@ def mmu_write8(address: uint16, value: uint8) {
 
   // External RAM: $A000 – $BFFF
   if (address & 0xF000) <= 0xB000 {
-    // printf("warn: unhandled write to external ram: $%04X ($%02X)\n", address, value);
+    printf("warn: unhandled write to external ram: $%04X ($%02X)\n", address, value);
     return;
   }
 
@@ -4320,27 +4320,30 @@ def cpu_step(): uint8 {
   }
 
   // STEP -> Interrupts
-  if IME and (IE > 0) and (IF > 0) {
+
+  let irq = IF & IE;
+  if IME and irq > 0 {
     om_push16(&PC);
 
-    if (IF & 0x01) != 0 and (IE & 0x01) != 0 {
+    let pc_ = PC;
+
+    if (irq & 0x01) != 0 {
       // V-Blank
-      printf("VBLANK!\n");
       PC = 0x40;
       IF &= ~0x01;
-    } else if (IF & 0x02) != 0 and (IE & 0x02) != 0 {
+    } else if (irq & 0x02) != 0 {
       // LCD STAT
       PC = 0x48;
       IF &= ~0x02;
-    } else if (IF & 0x04) != 0 and (IE & 0x04) != 0 {
+    } else if (irq & 0x04) != 0 {
       // Timer
       PC = 0x50;
       IF &= ~0x04;
-    } else if (IF & 0x08) != 0 and (IE & 0x08) != 0 {
+    } else if (irq & 0x08) != 0 {
       // Serial
       PC = 0x58;
       IF &= ~0x08;
-    } else if (IF & 0x10) != 0 and (IE & 0x10) != 0 {
+    } else if (irq & 0x10) != 0 {
       // Joypad
       PC = 0x60;
       IF &= ~0x10;
@@ -4350,8 +4353,6 @@ def cpu_step(): uint8 {
     IME = false;
 
     if HALT {
-      printf("disable halt (from interrupt)\n");
-
       CYCLES += 4;
       HALT = false;
     }
