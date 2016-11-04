@@ -35,6 +35,7 @@ let hram: *uint8;   // High RAM – 127 B
 let is_running = true;
 let CYCLES: uint8;
 let IME = false;
+let IME_pending = false;
 let PC: uint16 = 0;
 let IE: uint8;
 let IF: uint8;
@@ -140,15 +141,11 @@ def dump_rom() {
     let licensee_0 = *(rom + 0x0144);
     let licensee_1 = *(rom + 0x0145);
 
-    if licensee_0 < 30 or licensee_0 > 39 or licensee_1 < 30 or licensee_1 > 39 {
-      printf("warn: unexpected (new) licensee code: %02X %02X\n", licensee_0, licensee_1);
-    }
-
-    licensee_0 -= 30;
-    licensee_1 -= 30;
-
-    licensee = licensee_1 | (licensee_0 << 4);
+    printf("warn: unexpected (new) licensee code: %02X %02X\n", licensee_0, licensee_1);
   }
+
+  // CGB Flag
+  let cgb_mode = *(rom + 0x143);
 
   // SGB Flag
   let is_sgb = *(rom + 0x146) == 0x03;
@@ -181,6 +178,15 @@ def dump_rom() {
   printf("%-20s : %s\n", "Title", rom_title);
   printf("%-20s : %02X\n", "Licensee", licensee);
   printf("%-20s : %d\n", "SGB", is_sgb);
+
+  if cgb_mode == 0x80 {
+    printf("%-20s : %s\n", "CGB", "compatible");
+  } else if cgb_mode == 0xC0 {
+    printf("%-20s : %s\n", "CGB", "require");
+  } else {
+    printf("%-20s : %s\n", "CGB", "no");
+  }
+
   printf("%-20s : %02X\n", "Cartridge", cart);
   printf("%-20s : %d\n", "ROM Size", rom_size);
   printf("%-20s : %d\n", "External RAM Size", ext_ram_size);
@@ -253,6 +259,10 @@ def mmu_read8(address: uint16): uint8 {
 
   // I/O Ports
 
+  // if address == 0xFF00 {
+  //   return joy_read(address);
+  // }
+
   if (address & 0xF0) >= 0x40 and (address & 0xF0) <= 0x70 {
     // GPU Register
     return gpu_read(address);
@@ -264,11 +274,11 @@ def mmu_read8(address: uint16): uint8 {
     return IF | 0xE0;
   } else if address == 0xFFFF {
     // IE – Interrupt Enable (R/W)
-    return IE;
+    return IE | 0xE0;
   }
 
-  // printf("warn: unhandled read from memory: $%04X\n", address);
-  return 0;
+  printf("warn: unhandled read from memory: $%04X\n", address);
+  return 0xFF;
 }
 
 // Read 16-bits
@@ -311,28 +321,27 @@ def mmu_write8(address: uint16, value: uint8) {
     // GPU VRAM
     *(vram + (address & 0x1FFF)) = value;
 
-    // GPU –> Update Tile
-    gpu_update_tile(address, value);
-
     return;
   }
 
   // External RAM: $A000 – $BFFF
   if (address & 0xF000) <= 0xB000 {
-    printf("warn: unhandled write to external ram: $%04X ($%02X)\n", address, value);
+    // printf("warn: unhandled write to external ram: $%04X ($%02X)\n", address, value);
     return;
   }
 
   // Work RAM: $C000 – $DFFF
   // ECHO (of Work RAM): $E000 – $FDFF
   if (address & 0xF000) <= 0xD000 or address <= 0xFDFF {
+    // WRAM
     *(wram + (address & 0x1FFF)) = value;
     return;
   }
 
   // Sprite Attribute Table (OAM): $FE00 – $FE9F
   if (address >= 0xFE00) and (address <= 0xFE9F) {
-    *(oam + (address & 0xFF)) = value;
+    // TODO: OAM
+    // *(oam + (address & 0xFF)) = value;
     return;
   }
 
@@ -344,9 +353,15 @@ def mmu_write8(address: uint16, value: uint8) {
 
   // High RAM (HRAM): $FF80 – $FFFE
   if (address >= 0xFF80 and address <= 0xFFFE) {
+    // HRAM
     *(hram + ((address & 0xFF) - 0x80)) = value;
     return;
   }
+
+  // if address == 0xFF00 {
+  //   joy_write(address, value);
+  //   return;
+  // }
 
   // GPU Register
   if (address & 0xF0) >= 0x40 and (address & 0xF0) <= 0x70 {
@@ -384,7 +399,7 @@ def mmu_write8(address: uint16, value: uint8) {
     return;
   }
 
-  // printf("warn: unhandled write to memory: $%04X ($%02X)\n", address, value);
+  printf("warn: unhandled write to memory: $%04X ($%02X)\n", address, value);
   // exit(-1);
 }
 
@@ -1796,14 +1811,13 @@ def op_27() {
     flag_set(FLAG_C, true);
   }
 
-  flag_set(FLAG_H, false);
-  // if flag_get(FLAG_N) {
-  //   if flag_get(FLAG_H) {
-  //     flag_set(FLAG_H, (*A & 0xF) <= 5);
-  //   }
-  // } else {
-  //   flag_set(FLAG_H, (*A & 0xF) > 9);
-  // }
+  if flag_get(FLAG_N) {
+    if flag_get(FLAG_H) {
+      flag_set(FLAG_H, (*A & 0xF) <= 5);
+    }
+  } else {
+    flag_set(FLAG_H, (*A & 0xF) > 9);
+  }
 
   *A = uint8(r & 0xFF);
 
@@ -2229,12 +2243,6 @@ def op_76() {
   } else {
     HALT = true;
   }
-
-  // } else {
-  //   if (IE & IF & 0x1F) != 0 {
-  //
-  //   }
-  // }
 }
 
 // [77] LD (HL), A
@@ -2687,7 +2695,7 @@ def op_CB() {
   }
 
   // Set instruction time to the base/min
-  CYCLES = *(cycletable_CB + opcode);
+  CYCLES += *(cycletable_CB + opcode);
 
   // Execute instruction
   (*(optable_CB + opcode))();
@@ -2870,8 +2878,7 @@ def op_EF() {
 
 // [F0] LD A, ($FF00 + n)
 def op_F0() {
-  let n = uint16(mmu_next8());
-  *A = mmu_read8(0xFF00 + n);
+  *A = mmu_read8(0xFF00 + uint16(mmu_next8()));
 }
 
 // [F1] POP AF
@@ -2932,12 +2939,14 @@ def op_FA() {
 
 // [FB] EI
 def op_FB() {
-  IME = true;
+  IME_pending = true;
 }
 
 // [FE] CP n
-def op_FE() {
-  om_sub8(*A, mmu_next8());
+def op_FE()
+{
+  let n = mmu_next8();
+  om_sub8(*A, n);
 }
 
 // [FF] RST $38
@@ -4236,6 +4245,11 @@ def cpu_init() {
   wram = malloc(0x2000);
   oam = malloc(160);
   hram = malloc(127);
+
+  // memset(vram, 0, 0x2000);
+  // memset(wram, 0, 0x2000);
+  // memset(oam, 0, 160);
+  // memset(hram, 0, 127);
 }
 
 def cpu_fini() {
@@ -4299,14 +4313,59 @@ def cpu_reset() {
 }
 
 def cpu_step(): uint8 {
-  // IF HALT; just return 4 (cycles)
-  if HALT {
-    if IME or (IE & IF & 0x1F) == 0 {
-      return 4;
-    } else {
-      HALT = false;
-    }
-  }
+  CYCLES = 0;
+
+  // // IF HALT; just return 4 (cycles)
+  // if HALT {
+  //   if IME or (IE & IF & 0x1F) == 0 {
+  //     return 4;
+  //   } else {
+  //     HALT = false;
+  //   }
+  // }
+  //
+  // // STEP -> Interrupts
+  // if IME and (IE > 0) and (IF > 0) {
+  //   om_push16(&PC);
+  //
+  //   if (IF & 0x01) != 0 and (IE & 0x01) != 0 {
+  //     // V-Blank
+  //     PC = 0x40;
+  //     IF &= ~0x01;
+  //   } else if (IF & 0x02) != 0 and (IE & 0x02) != 0 {
+  //     // LCD STAT
+  //     PC = 0x48;
+  //     IF &= ~0x02;
+  //   } else if (IF & 0x04) != 0 and (IE & 0x04) != 0 {
+  //     // Timer
+  //     PC = 0x50;
+  //     IF &= ~0x04;
+  //   } else if (IF & 0x08) != 0 and (IE & 0x08) != 0 {
+  //     // Serial
+  //     PC = 0x58;
+  //     IF &= ~0x08;
+  //   } else if (IF & 0x10) != 0 and (IE & 0x10) != 0 {
+  //     // Joypad
+  //     PC = 0x60;
+  //     IF &= ~0x10;
+  //   }
+  //
+  //   CYCLES += 20;
+  //   IME = false;
+  //
+  //   if HALT {
+  //     printf("disable halt (from interrupt)\n");
+  //
+  //     CYCLES += 4;
+  //     HALT = false;
+  //   }
+  // }
+  //
+  // if IME_pending {
+  //   // Re-enable IME
+  //   IME_pending = false;
+  //   IME = true;
+  // }
 
   // Get next opcode
   let opcode = mmu_next8();
@@ -4325,7 +4384,7 @@ def cpu_step(): uint8 {
   }
 
   // Set instruction time to the base/min
-  CYCLES = *(cycletable + opcode);
+  CYCLES += *(cycletable + opcode);
 
   // Execute instruction
   (*(optable + opcode))();
@@ -4354,6 +4413,11 @@ let gpu_window_enable: bool;
 let gpu_sprite_enable: bool;
 let gpu_bg_enable: bool;
 
+let gpu_stat_lyc_compare_enable: bool = false;
+let gpu_stat_oam_enable: bool = false;
+let gpu_stat_vblank_enable: bool = false;
+let gpu_stat_hblank_enable: bool = false;
+
 // 0=9800-9BFF, 1=9C00-9FFF
 let gpu_window_tm_select: bool;
 let gpu_bg_tm_select: bool;
@@ -4363,9 +4427,6 @@ let gpu_td_select: bool;
 
 // 0=8x8, 1=8x16
 let gpu_sprite_size: bool;
-
-// Tiles (screen)
-let gpu_tiles: ***uint8;
 
 // Framebuffer
 let gpu_framebuffer: *uint8;
@@ -4384,76 +4445,11 @@ def gpu_init() {
 
   framebuffer = malloc(160 * 144 * 4) as *uint32;
   memset(framebuffer as *uint8, 0, 160 * 144 * 4);
-
-  gpu_tiles = malloc(512 * 8) as ***uint8;
-  let i = 0;
-  while i < 512 {
-    *(gpu_tiles + i) = malloc(8 * 8) as **uint8;
-    let x = 0;
-    while x < 8 {
-      *(*(gpu_tiles + i) + x) = malloc(8);
-      memset(*(*(gpu_tiles + i) + x), 0, 8);
-      x += 1;
-    }
-    i += 1;
-  }
 }
 
 def gpu_fini() {
-  let i = 0;
-  while i < 512 {
-    let x = 0;
-    while x < 8 {
-      free(*(*(gpu_tiles + i) + x));
-      x += 1;
-    }
-    free(*(gpu_tiles + i) as *uint8);
-    i += 1;
-  }
-
-  free(gpu_tiles as *uint8);
   free(gpu_framebuffer);
   free(framebuffer as *uint8);
-}
-
-def gpu_update_tile(address: uint16, value: uint8) {
-  // VRAM is 0x8000 – 0x9FFF (0x0000 – 0x1FFF)
-  // Tile Data is 0x8000 – 0x17FF
-  address &= 0x1FFE;
-  if address > 0x17FF { return; }
-
-  // Determine the tile (and row of it)
-  let tile = (address >> 4) & 0x1FF;
-  let y = (address >> 1) & 0x7;
-
-  let x: uint8 = 0;
-  while x < 8 {
-    // Bit index for pixel
-    let sx: uint8 = 1 << (7 - x);
-
-    let n0 = *(vram + address);
-    let n1 = *(vram + address + 1);
-
-    let lo = if testb(n0, 7 - x) { 1; } else { 0; };
-    let hi = if testb(n1, 7 - x) { 2; } else { 0; };
-
-    let color = lo | hi;
-
-    if tile == 0 {
-      if value == 0 {
-        break;
-      }
-    }
-
-    // Update tile
-    // 0 = Off
-    // 1 = 33% On
-    // 2 = 66% On
-    // 3 = 100% On
-    *(*(*(gpu_tiles + tile) + y) + x) = uint8(color);
-
-    x += 1;
-  }
 }
 
 def gpu_reset() {
@@ -4466,11 +4462,11 @@ def gpu_render_scanline() {
   // if not gpu_lcd_enable {
   //   return;
   // }
-  //
+
   // if gpu_window_enable {
   //   printf("WINDOW IS ENABLED\n");
   // }
-  //
+
   // if not gpu_bg_enable {
   //   // Background not enabled; turn off all pixels on this line
   //   // let i = 0;
@@ -4511,16 +4507,27 @@ def gpu_render_scanline() {
     // Tile Map
     let tile: int16;
     if gpu_td_select {
-      tile = int16(uint8(*(vram + map + offset)));
+      tile = int16(*(vram + map + offset));
     } else {
       tile = int16(int8(*(vram + map + offset))) + 256;
     }
 
     // Tile Data
-    let pixel = *(*(*(gpu_tiles + tile) + y) + x);
+    // tile = 0;
+    let td_address: int16 = tile * 16 + int16(y) * 2;
+
+    // Make a bitmask for the pixel being rendered
+    let pixel_mask = 0x80 >> (x % 8);
+
+    // Check the color bits for that pixel
+    let palette_lo = if *(vram + td_address) & pixel_mask != 0 { 1; } else { 0; };
+    let palette_hi = if *(vram + td_address + 1) & pixel_mask != 0 { 1; } else { 0; };
+
+    // Combine them into a single index from 0 to 3
+    let palette_index = uint8((palette_hi << 1) | palette_lo);
 
     // Palette
-    let color = (gpu_palette >> (pixel * 2)) & 0x3;
+    let color = (gpu_palette >> (palette_index * 2)) & 0x3;
 
     // Push pixel to framebuffer
     *(gpu_framebuffer + (int64(gpu_line) * 160) + i) = color;
@@ -4553,7 +4560,7 @@ def gpu_present() {
         0;
       };
 
-      *(framebuffer + (y * (160) + x)) = color;
+      *(framebuffer + (y * 160 + x)) = color;
 
       x += 1;
     }
@@ -4590,7 +4597,7 @@ def gpu_step(cycles: uint8): bool {
         gpu_mode = 1;
         vblank_begin = true;
 
-        // TODO: VBLANK Interrupt
+        // VBLANK Interrupt
         IF |= 0x01;
       } else {
         gpu_mode = 2;
@@ -4609,7 +4616,7 @@ def gpu_step(cycles: uint8): bool {
       } else {
         gpu_line += 1;
       }
-    } else if gpu_line == 153 {
+    } else if gpu_line == 153 and gpu_mode_clock >= 56 {
       gpu_line = 0;
     }
   }
@@ -4632,9 +4639,15 @@ def gpu_read(address: uint16): uint8 {
     );
   } else if address == 0xFF41 {
     // STAT – LCDC Status (R/W)
-    // TODO: Status interrupt enable/disable
-    // TODO: Coincidence Interrupt (LYC / LY)
-    return uint8(gpu_mode);
+    return (
+      bit(true, 7) |
+      bit(gpu_stat_lyc_compare_enable, 6) |
+      bit(gpu_stat_oam_enable, 5) |
+      bit(gpu_stat_vblank_enable, 4) |
+      bit(gpu_stat_hblank_enable, 3) |
+      bit(gpu_line == gpu_line_compare, 2) |
+      uint8(gpu_mode)
+    );
   } else if address == 0xFF44 {
     // LY – LCDC Y-Coordinate (R)
     return gpu_line;
@@ -4661,6 +4674,12 @@ def gpu_write(address: uint16, value: uint8) {
     gpu_sprite_size = testb(value, 2);
     gpu_sprite_enable = testb(value, 1);
     gpu_bg_enable = testb(value, 0);
+  } else if address == 0xFF41 {
+    // STAT – LCDC Status (R/W)
+    gpu_stat_lyc_compare_enable = testb(value, 6);
+    gpu_stat_oam_enable = testb(value, 5);
+    gpu_stat_vblank_enable = testb(value, 4);
+    gpu_stat_hblank_enable = testb(value, 3);
   } else if address == 0xFF42 {
     // SCY – Scroll Y (R/W)
     gpu_scy = value;
@@ -4674,29 +4693,60 @@ def gpu_write(address: uint16, value: uint8) {
     // BGP – Background Palette (R/W)
     gpu_palette = value;
   } else {
-    // printf("warn: unhandled write to GPU register: $%04X ($%02X)\n",
-      // address, value);
+    printf("warn: unhandled write to GPU register: $%04X ($%02X)\n",
+      address, value);
   }
 }
 
-def gpu_dump_tile(filename: str, tile: uint8) {
-  let stream = fopen(filename, "wb");
+// =============================================================================
+// [IN] Input / Joypad
+// =============================================================================
+let joy_sel_button = false;
+let joy_sel_direction = false;
 
-  let y = 0;
-  while y < 8 {
-    let x = 0;
-    while x < 8 {
-      fprintf(stream, "%02x ",
-        *(*(*(gpu_tiles + tile) + y) + x)
-      );
+def joy_reset() {
+  joy_sel_button = false;
+  joy_sel_direction = false;
+}
 
-      x += 1;
-    }
-    fprintf(stream, "\n");
-    y += 1;
+def joy_write(address: uint16, value: uint8) {
+  if address == 0xFF00 {
+    joy_sel_button = not testb(value, 5);
+    joy_sel_direction = not testb(value, 4);
+  } else {
+    printf("warn: unhandled write to Joypad register: $%04X ($%02X)\n",
+      address, value);
   }
+}
 
-  fclose(stream);
+def joy_read(address: uint16): uint8 {
+  if address == 0xFF00 {
+    // P1 – Joypad (R/W)
+    // Bit 7 - Not used
+    // Bit 6 - Not used
+    // Bit 5 - P15 Select Button Keys      (0=Select)
+    // Bit 4 - P14 Select Direction Keys   (0=Select)
+    // Bit 3 - P13 Input Down  or Start    (0=Pressed) (Read Only)
+    // Bit 2 - P12 Input Up    or Select   (0=Pressed) (Read Only)
+    // Bit 1 - P11 Input Left  or Button B (0=Pressed) (Read Only)
+    // Bit 0 - P10 Input Right or Button A (0=Pressed) (Read Only)
+
+    // NOTE: This is backwards logic to me. 0 = True ?
+
+    return (
+      bit(true, 7) |
+      bit(true, 6) |
+      bit(not joy_sel_button, 5) |
+      bit(not joy_sel_direction, 4) |
+      bit(true, 3) |
+      bit(true, 2) |
+      bit(true, 1) |
+      bit(true, 0)
+    );
+  } else {
+    printf("warn: unhandled read from Joypad register: $%04X\n", address);
+    return 0xFF;
+  }
 }
 
 // =============================================================================
@@ -4711,39 +4761,7 @@ def execute() {
     // STEP -> GPU
     let vblank_begin = gpu_step(cycles);
 
-    // STEP -> Interrupts
-    if IME and (IE > 0) and (IF > 0) {
-      SP -= 2;
-      mmu_write16(SP, PC);
-
-      if (IF & 0x01) != 0 and (IE & 0x01) != 0 {
-        // V-Blank
-        PC = 0x40;
-        IF &= ~0x01;
-      } else if (IF & 0x02) != 0 and (IE & 0x02) != 0 {
-        // LCD STAT
-        PC = 0x48;
-        IF &= ~0x02;
-      } else if (IF & 0x04) != 0 and (IE & 0x04) != 0 {
-        // Timer
-        PC = 0x50;
-        IF &= ~0x04;
-      } else if (IF & 0x08) != 0 and (IE & 0x08) != 0 {
-        // Serial
-        PC = 0x58;
-        IF &= ~0x08;
-      } else if (IF & 0x10) != 0 and (IE & 0x10) != 0 {
-        // Joypad
-        PC = 0x60;
-        IF &= ~0x10;
-      }
-
-      IME = false;
-    }
-
     if vblank_begin {
-      let begin = clock();
-
       // Rasterize framebuffer
       gpu_present();
 
@@ -4752,9 +4770,6 @@ def execute() {
 
       // Blit pixels
       sdl_render();
-
-      let end = clock();
-      let elapsed = float64(end - begin) / float64(CLOCKS_PER_SEC);
     }
   }
 }
