@@ -4315,57 +4315,58 @@ def cpu_reset() {
 def cpu_step(): uint8 {
   CYCLES = 0;
 
-  // // IF HALT; just return 4 (cycles)
-  // if HALT {
-  //   if IME or (IE & IF & 0x1F) == 0 {
-  //     return 4;
-  //   } else {
-  //     HALT = false;
-  //   }
-  // }
-  //
-  // // STEP -> Interrupts
-  // if IME and (IE > 0) and (IF > 0) {
-  //   om_push16(&PC);
-  //
-  //   if (IF & 0x01) != 0 and (IE & 0x01) != 0 {
-  //     // V-Blank
-  //     PC = 0x40;
-  //     IF &= ~0x01;
-  //   } else if (IF & 0x02) != 0 and (IE & 0x02) != 0 {
-  //     // LCD STAT
-  //     PC = 0x48;
-  //     IF &= ~0x02;
-  //   } else if (IF & 0x04) != 0 and (IE & 0x04) != 0 {
-  //     // Timer
-  //     PC = 0x50;
-  //     IF &= ~0x04;
-  //   } else if (IF & 0x08) != 0 and (IE & 0x08) != 0 {
-  //     // Serial
-  //     PC = 0x58;
-  //     IF &= ~0x08;
-  //   } else if (IF & 0x10) != 0 and (IE & 0x10) != 0 {
-  //     // Joypad
-  //     PC = 0x60;
-  //     IF &= ~0x10;
-  //   }
-  //
-  //   CYCLES += 20;
-  //   IME = false;
-  //
-  //   if HALT {
-  //     printf("disable halt (from interrupt)\n");
-  //
-  //     CYCLES += 4;
-  //     HALT = false;
-  //   }
-  // }
-  //
-  // if IME_pending {
-  //   // Re-enable IME
-  //   IME_pending = false;
-  //   IME = true;
-  // }
+  // IF HALT; just return 4 (cycles)
+  if HALT {
+    if IME or (IE & IF & 0x1F) == 0 {
+      return 4;
+    } else {
+      HALT = false;
+    }
+  }
+
+  // STEP -> Interrupts
+  if IME and (IE > 0) and (IF > 0) {
+    om_push16(&PC);
+
+    if (IF & 0x01) != 0 and (IE & 0x01) != 0 {
+      // V-Blank
+      printf("VBLANK!\n");
+      PC = 0x40;
+      IF &= ~0x01;
+    } else if (IF & 0x02) != 0 and (IE & 0x02) != 0 {
+      // LCD STAT
+      PC = 0x48;
+      IF &= ~0x02;
+    } else if (IF & 0x04) != 0 and (IE & 0x04) != 0 {
+      // Timer
+      PC = 0x50;
+      IF &= ~0x04;
+    } else if (IF & 0x08) != 0 and (IE & 0x08) != 0 {
+      // Serial
+      PC = 0x58;
+      IF &= ~0x08;
+    } else if (IF & 0x10) != 0 and (IE & 0x10) != 0 {
+      // Joypad
+      PC = 0x60;
+      IF &= ~0x10;
+    }
+
+    CYCLES += 20;
+    IME = false;
+
+    if HALT {
+      printf("disable halt (from interrupt)\n");
+
+      CYCLES += 4;
+      HALT = false;
+    }
+  }
+
+  if IME_pending {
+    // Re-enable IME
+    IME_pending = false;
+    IME = true;
+  }
 
   // Get next opcode
   let opcode = mmu_next8();
