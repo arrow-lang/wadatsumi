@@ -1811,13 +1811,8 @@ def op_27() {
     flag_set(FLAG_C, true);
   }
 
-  if flag_get(FLAG_N) {
-    if flag_get(FLAG_H) {
-      flag_set(FLAG_H, (*A & 0xF) <= 5);
-    }
-  } else {
-    flag_set(FLAG_H, (*A & 0xF) > 9);
-  }
+  // NOTE: Half-carry is always unset (unlike a Z-80)
+  flag_set(FLAG_H, false);
 
   *A = uint8(r & 0xFF);
 
