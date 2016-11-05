@@ -83,8 +83,9 @@ def init() {
 }
 
 def reset() {
-  cpu_reset();
+  joy_reset();
   gpu_reset();
+  cpu_reset();
 }
 
 def fini() {
@@ -4319,7 +4320,7 @@ def cpu_step(): uint8 {
 
   // IF HALT; just return 4 (cycles)
   if HALT {
-    if IME or (IE & IF & 0x1F) == 0 {
+    if (IE & IF & 0x1F) == 0 {
       return 4;
     } else {
       HALT = false;
@@ -4439,8 +4440,16 @@ let framebuffer: *uint32;
 let gpu_scy = 0;
 let gpu_scx = 0;
 
+// Window
+let gpu_wy = 0;
+let gpu_wx = 7;
+
 // Palette
 let gpu_palette: uint8 = 0;
+
+// Sprites
+let gpu_obj0_palette: uint8 = 0;
+let gpu_obj1_palette: uint8 = 0;
 
 def gpu_init() {
   gpu_framebuffer = malloc(160 * 144);
@@ -4462,76 +4471,210 @@ def gpu_reset() {
 }
 
 def gpu_render_scanline() {
-  // if not gpu_lcd_enable {
-  //   return;
-  // }
+  // TODO: Combine Window & Background rendering .. code is super duplicated
 
-  // if gpu_window_enable {
-  //   printf("WINDOW IS ENABLED\n");
-  // }
+  // Background
+  if gpu_bg_enable {
+    // Line (to be rendered)
+    // With a high SCY value, the line wraps around
+    let line = (int64(gpu_line) + int64(gpu_scy)) & 0xFF;
 
-  if not gpu_bg_enable {
+    // Tile Map (Offset)
+    // The tile map is 32x32 (1024 bytes) and is an index into the tile data
+    // A single tile map cell corresponds to an 8x8 cell in the framebuffer
+    //  map 0 ~ line 0..7
+    //  map 31 ~ line 8..13
+    let map: int64 = if (gpu_bg_tm_select) { 0x1C00; } else { 0x1800; };
+    map += (line >> 3) << 5;
+
+    let i: int64 = 0;
+    let x = gpu_scx % 8;
+    let offset = int64(gpu_scx) >> 3;
+    let y = line % 8;
+
+    let i = 0;
+    while i < 160 {
+      if (x == 8) {
+        // New Tile
+        x = 0;
+        offset = (offset + 1) % 32;
+      }
+
+      // Tile Map
+      let tile: int16;
+      if gpu_td_select {
+        tile = int16(*(vram + map + offset));
+      } else {
+        tile = int16(int8(*(vram + map + offset))) + 256;
+      }
+
+      // Tile Data
+      // tile = 0;
+      let td_address: int16 = tile * 16 + int16(y) * 2;
+
+      // Make a bitmask for the pixel being rendered
+      let pixel_mask = 0x80 >> (x % 8);
+
+      // Check the color bits for that pixel
+      let palette_lo = if *(vram + td_address) & pixel_mask != 0 { 1; } else { 0; };
+      let palette_hi = if *(vram + td_address + 1) & pixel_mask != 0 { 1; } else { 0; };
+
+      // Combine them into a single index from 0 to 3
+      let palette_index = uint8((palette_hi << 1) | palette_lo);
+
+      // Palette
+      let color = (gpu_palette >> (palette_index * 2)) & 0x3;
+
+      // Push pixel to framebuffer
+      *(gpu_framebuffer + (int64(gpu_line) * 160) + i) = color;
+
+      x += 1;
+      i += 1;
+    }
+  } else {
     // Background not enabled
     // FIXME: Should we do anything special here?
-
-    return;
   }
 
-  // Line (to be rendered)
-  // With a high SCY value, the line wraps around
-  let line = (int64(gpu_line) + int64(gpu_scy)) & 0xFF;
+  // Window
+  if gpu_window_enable {
+    // FIXME: What is supposed to happen when WX is set to < 7 ?
+    let wx = if gpu_wx < 7 { 0; } else { gpu_wx - 7; };
+    let wy = gpu_wy;
 
-  // Tile Map (Offset)
-  // The tile map is 32x32 (1024 bytes) and is an index into the tile data
-  // A single tile map cell corresponds to an 8x8 cell in the framebuffer
-  //  map 0 ~ line 0..7
-  //  map 31 ~ line 8..13
-  let map: int64 = if (gpu_bg_tm_select) { 0x1C00; } else { 0x1800; };
-  map += (line >> 3) << 5;
+    // Line (to be rendered)
+    let line = int64(gpu_line);
+    if line > int64(wy) {
 
-  let i: int64 = 0;
-  let x = gpu_scx % 8;
-  let offset = int64(gpu_scx) >> 3;
-  let y = line % 8;
+      // Tile Map (Offset)
+      // The tile map is 32x32 (1024 bytes) and is an index into the tile data
+      // A single tile map cell corresponds to an 8x8 cell in the framebuffer
+      //  map 0 ~ line 0..7
+      //  map 31 ~ line 8..13
+      let map: int64 = if (gpu_window_tm_select) { 0x1C00; } else { 0x1800; };
+      map += ((line - int64(wy)) >> 3) << 5;
 
-  let i = 0;
-  while i < 160 {
-    if (x == 8) {
-      // New Tile
-      x = 0;
-      offset = (offset + 1) % 32;
+      let i: int64 = 0;
+      let x = 0;
+      let offset = 0;
+      let y = line % 8;
+
+      let i = wx;
+      while i < 160 {
+        if (x == 8) {
+          // New Tile
+          x = 0;
+          offset = (offset + 1) % 32;
+        }
+
+        // Tile Map
+        let tile: int16;
+        if gpu_td_select {
+          tile = int16(*(vram + map + offset));
+        } else {
+          tile = int16(int8(*(vram + map + offset))) + 256;
+        }
+
+        // Tile Data
+        // tile = 0;
+        let td_address: int16 = tile * 16 + int16(y) * 2;
+
+        // Make a bitmask for the pixel being rendered
+        let pixel_mask = 0x80 >> (x % 8);
+
+        // Check the color bits for that pixel
+        let palette_lo = if *(vram + td_address) & pixel_mask != 0 { 1; } else { 0; };
+        let palette_hi = if *(vram + td_address + 1) & pixel_mask != 0 { 1; } else { 0; };
+
+        // Combine them into a single index from 0 to 3
+        let palette_index = uint8((palette_hi << 1) | palette_lo);
+
+        // Palette
+        let color = (gpu_palette >> (palette_index * 2)) & 0x3;
+
+        // Push pixel to framebuffer
+        *(gpu_framebuffer + (int64(gpu_line) * 160) + i) = color;
+
+        x += 1;
+        i += 1;
+      }
     }
+  } else {
+    // Window not enabled
+    // FIXME: Should we do anything special here?
+  }
 
-    // Tile Map
-    let tile: int16;
-    if gpu_td_select {
-      tile = int16(*(vram + map + offset));
-    } else {
-      tile = int16(int8(*(vram + map + offset))) + 256;
+  // Sprites
+  if gpu_sprite_enable {
+    // Sprite attributes reside in the Sprite Attribute Table (
+    // OAM - Object Attribute Memory) at $FE00-FE9F.
+    // Each of the 40 entries consists of four bytes with the
+    // following meanings:
+    //  Byte0 - Y Position
+    //  Byte1 - X Position
+    //  Byte2 - Tile/Pattern Number
+    //  Byte3 - Attributes/Flags:
+    //    Bit7   OBJ-to-BG Priority (0=OBJ Above BG, 1=OBJ Behind BG color 1-3)
+    //           (Used for both BG and Window. BG color 0 is always behind OBJ)
+    //    Bit6   Y flip          (0=Normal, 1=Vertically mirrored)
+    //    Bit5   X flip          (0=Normal, 1=Horizontally mirrored)
+    //    Bit4   Palette number  **Non CGB Mode Only** (0=OBP0, 1=OBP1)
+    //    Bit3   Tile VRAM-Bank  **CGB Mode Only**     (0=Bank 0, 1=Bank 1)
+    //    Bit2-0 Palette number  **CGB Mode Only**     (OBP0-7)
+
+    let i = 0;
+    while i < 40 {
+      let offset = (i * 4);
+
+      let sprite_y = int16(*(oam + offset + 0)) - 16;
+      let sprite_x = int16(*(oam + offset + 1)) - 8;
+      let sprite_tile = int16(*(oam + offset + 2));
+      let sprite_flags = *(oam + offset + 3);
+
+      // Remember, we are rendering on a line-by-line basis
+      // Does this sprite intersect our current scanline?
+
+      if sprite_y <= int16(gpu_line) and (sprite_y + 8) > int16(gpu_line) {
+
+        let tile_y: int16 = int16(gpu_line) - sprite_y;
+        let td_address: int16 = sprite_tile * 16 + int16(tile_y) * 2;
+
+        // Iterate through the columns of the sprite pixels and
+        // blit them on the scanline
+
+        let x: int16 = 0;
+        while x < 8 {
+          if (sprite_x + x >= 0) and (sprite_x + x < 160) {
+            // Make a bitmask for the pixel being rendered
+            let pixel_mask = 0x80 >> ((sprite_x + x) % 8);
+
+            // Check the color bits for that pixel
+            let palette_lo = if *(vram + td_address) & pixel_mask != 0 { 1; } else { 0; };
+            let palette_hi = if *(vram + td_address + 1) & pixel_mask != 0 { 1; } else { 0; };
+
+            // Combine them into a single index from 0 to 3
+            let palette_index = uint8((palette_hi << 1) | palette_lo);
+
+            // Palette
+            let color = if testb(sprite_flags, 4) {
+              (gpu_obj0_palette >> (palette_index * 2)) & 0x3;
+            } else {
+              (gpu_obj1_palette >> (palette_index * 2)) & 0x3;
+            };
+
+            // Push pixel to framebuffer
+            *(gpu_framebuffer + (int64(gpu_line) * 160) + (sprite_x + x)) = color;
+          }
+
+          x += 1;
+        }
+      }
+
+      i += 1;
     }
-
-    // Tile Data
-    // tile = 0;
-    let td_address: int16 = tile * 16 + int16(y) * 2;
-
-    // Make a bitmask for the pixel being rendered
-    let pixel_mask = 0x80 >> (x % 8);
-
-    // Check the color bits for that pixel
-    let palette_lo = if *(vram + td_address) & pixel_mask != 0 { 1; } else { 0; };
-    let palette_hi = if *(vram + td_address + 1) & pixel_mask != 0 { 1; } else { 0; };
-
-    // Combine them into a single index from 0 to 3
-    let palette_index = uint8((palette_hi << 1) | palette_lo);
-
-    // Palette
-    let color = (gpu_palette >> (palette_index * 2)) & 0x3;
-
-    // Push pixel to framebuffer
-    *(gpu_framebuffer + (int64(gpu_line) * 160) + i) = color;
-
-    x += 1;
-    i += 1;
+  } else {
+    // Sprites not enabled
+    // FIXME: Should we do anything special here?
   }
 }
 
@@ -4646,6 +4789,12 @@ def gpu_read(address: uint16): uint8 {
       bit(gpu_line == gpu_line_compare, 2) |
       uint8(gpu_mode)
     );
+  } else if address == 0xFF42 {
+    // SCY – Scroll Y (R/W)
+    return gpu_scy;
+  } else if address == 0xFF43 {
+    // SCX – Scroll X (R/W)
+    return gpu_scx;
   } else if address == 0xFF44 {
     // LY – LCDC Y-Coordinate (R)
     return gpu_line;
@@ -4655,6 +4804,18 @@ def gpu_read(address: uint16): uint8 {
   } else if address == 0xFF47 {
     // BGP – Background Palette (R/W)
     return gpu_palette;
+  } else if address == 0xFF4A {
+    // WY – Window Y Position (R/W)
+    return gpu_wy;
+  } else if address == 0xFF4B {
+    // WX – Window X Position (R/W)
+    return gpu_wx;
+  } else if address == 0xFF48 {
+    // OBP0 - Object Palette 0 Data (R/W)
+    return gpu_obj0_palette;
+  } else if address == 0xFF49 {
+    // OBP1 - Object Palette 1 Data (R/W)
+    return gpu_obj1_palette;
   }
 
   printf("warn: unhandled read from GPU register: $%04X\n", address);
@@ -4690,6 +4851,33 @@ def gpu_write(address: uint16, value: uint8) {
   } else if address == 0xFF47 {
     // BGP – Background Palette (R/W)
     gpu_palette = value;
+  } else if address == 0xFF4A {
+    // WY – Window Y Position (R/W)
+    gpu_wy = value;
+  } else if address == 0xFF4B {
+    // WX – Window X Position (R/W)
+    gpu_wx = value;
+  } else if address == 0xFF46 {
+    // DMA - DMA Transfer and Start Address (W)
+
+    // FIXME: This is supposed to take 160 × 4 + 4 cycles to complete
+    //        4 cycles to begin with 4 cycles per write/read (transfer)
+
+    let src = uint16(value) << 8;
+    if src >= 0x8000 and src < 0xE000 {
+      let i: uint16 = 0;
+      while i < 0xA0 {
+        mmu_write8(0xFE00 + i, mmu_read8(src + i));
+
+        i += 1;
+      }
+    }
+  } else if address == 0xFF48 {
+    // OBP0 - Object Palette 0 Data (R/W)
+    gpu_obj0_palette = value;
+  } else if address == 0xFF49 {
+    // OBP1 - Object Palette 1 Data (R/W)
+    gpu_obj1_palette = value;
   } else {
     printf("warn: unhandled write to GPU register: $%04X ($%02X)\n",
       address, value);
@@ -4703,8 +4891,8 @@ let joy_sel_button = false;
 let joy_sel_direction = false;
 
 // 1 - Pressed
-let joy_state_start = false;
-let joy_state_sel = false;
+let joy_state_start = true;
+let joy_state_sel = true;
 let joy_state_a = false;
 let joy_state_b = false;
 let joy_state_up = false;
@@ -4713,8 +4901,8 @@ let joy_state_left = false;
 let joy_state_right = false;
 
 def joy_reset() {
-  joy_sel_button = false;
-  joy_sel_direction = false;
+  joy_sel_button = true;
+  joy_sel_direction = true;
 
   joy_state_start = false;
   joy_state_sel = false;
