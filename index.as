@@ -20,6 +20,7 @@ extern def ftell(stream: *FILE): c_int;
 extern def fflush(stream: *FILE);
 extern def strncpy(dst: str, src: str, count: size_t): str;
 extern def clock(): uint64;
+extern def rand(): c_int;
 extern def sleep(seconds: uint32);
 
 let CLOCKS_PER_SEC: uint64 = 1000000;
@@ -4623,6 +4624,7 @@ def gpu_render_scanline() {
     //    Bit2-0 Palette number  **CGB Mode Only**     (OBP0-7)
 
     let i = 0;
+    let total = 0;
     while i < 40 {
       let offset = (i * 4);
 
@@ -4636,6 +4638,12 @@ def gpu_render_scanline() {
 
       if sprite_y <= int16(gpu_line) and (sprite_y + 8) > int16(gpu_line) {
 
+        total += 1;
+        if total > 10 {
+          // No more sprites
+          break;
+        }
+
         let tile_y: int16 = int16(gpu_line) - sprite_y;
         let td_address: int16 = sprite_tile * 16 + int16(tile_y) * 2;
 
@@ -4646,7 +4654,7 @@ def gpu_render_scanline() {
         while x < 8 {
           if (sprite_x + x >= 0) and (sprite_x + x < 160) {
             // Make a bitmask for the pixel being rendered
-            let pixel_mask = 0x80 >> ((sprite_x + x) % 8);
+            let pixel_mask = 0x80 >> (if testb(sprite_flags, 5) { 7 - x; } else { x; });
 
             // Check the color bits for that pixel
             let palette_lo = if *(vram + td_address) & pixel_mask != 0 { 1; } else { 0; };
@@ -4654,16 +4662,26 @@ def gpu_render_scanline() {
 
             // Combine them into a single index from 0 to 3
             let palette_index = uint8((palette_hi << 1) | palette_lo);
+            // NOTE: 0 is transparent for sprites
+            if palette_index != 0 {
+              // Palette
+              let color = if testb(sprite_flags, 4) {
+                (gpu_obj1_palette >> (palette_index * 2)) & 0x3;
+              } else {
+                (gpu_obj0_palette >> (palette_index * 2)) & 0x3;
+              };
 
-            // Palette
-            let color = if testb(sprite_flags, 4) {
-              (gpu_obj0_palette >> (palette_index * 2)) & 0x3;
-            } else {
-              (gpu_obj1_palette >> (palette_index * 2)) & 0x3;
-            };
-
-            // Push pixel to framebuffer
-            *(gpu_framebuffer + (int64(gpu_line) * 160) + (sprite_x + x)) = color;
+              // Push pixel to framebuffer
+              let fbo: int64 = (int64(gpu_line) * 160) + int64(sprite_x + x);
+              if testb(sprite_flags, 7) {
+                let bgcolor = *(gpu_framebuffer + fbo);
+                if bgcolor == 0 {
+                  *(gpu_framebuffer + fbo) = color;
+                }
+              } else {
+                *(gpu_framebuffer + fbo) = color;
+              }
+            }
           }
 
           x += 1;
@@ -4957,7 +4975,6 @@ def joy_read(address: uint16): uint8 {
 // [CX] Core
 // =============================================================================
 def execute() {
-  // TODO: Method to stop/pause/etc.
   while is_running {
     // STEP -> CPU
     let cycles = cpu_step();
@@ -5041,7 +5058,7 @@ def sdl_init() {
 
   // Create renderer
   _renderer = SDL_CreateRenderer(_window, -1,
-    SDL_RENDERER_ACCELERATED);
+    SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
   // White initial screen
   SDL_SetRenderDrawColor(_renderer, 155, 188, 15, 255);
