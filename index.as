@@ -25,6 +25,12 @@ extern def sleep(seconds: uint32);
 
 let CLOCKS_PER_SEC: uint64 = 1000000;
 
+// Timers
+let DIV: uint16 = 0xABCC;
+let TIMA: uint8 = 0;
+let TMA: uint8 = 0;
+let TAC: uint8 = 0;
+
 // Memory
 let rom: *uint8;    // ROM – as big as cartridge
 let vram: *uint8;   // Video RAM – 8 KiB
@@ -70,8 +76,6 @@ def main(argc: int32, argv: *str, environ: *str) {
 
   fini();
 }
-
-// main();
 
 def init() {
   sdl_init();
@@ -283,6 +287,25 @@ def mmu_read8(address: uint16): uint8 {
     return IE | 0xE0;
   }
 
+  if address == 0xFF04 {
+    return uint8(((DIV & 0xFF00) >> 8));
+  }
+
+  if address == 0xFF05 {
+    // printf("warn: timer read");
+    return TIMA;
+  }
+
+  if address == 0xFF06 {
+    // printf("warn: TMA read");
+    return TMA;
+  }
+
+  if address == 0xFF07 {
+    // printf("warn: TAC read");
+    return TAC;
+  }
+
   printf("warn: unhandled read from memory: $%04X\n", address);
   return 0xFF;
 }
@@ -405,6 +428,16 @@ def mmu_write8(address: uint16, value: uint8) {
   // IE – Interrupt Enable (R/W)
   if (address == 0xFFFF) {
     IE = value & 0x1F;
+    return;
+  }
+
+  if (
+    (address == 0xFF04) or
+    (address == 0xFF05) or
+    (address == 0xFF06) or
+    (address == 0xFF07)
+  ) {
+    timer_write(address, value);
     return;
   }
 
@@ -4279,6 +4312,9 @@ def cpu_reset() {
   DE = 0x00D8;
   HL = 0x014D;
 
+  // Timers
+  DIV = 0xABCC;
+
   // (Last) Instruction Time (in cycles)
   CYCLES = 0;
 
@@ -4979,6 +5015,8 @@ def execute() {
     // STEP -> CPU
     let cycles = cpu_step();
 
+    div_timer_step(cycles);
+
     // STEP -> GPU
     let vblank_begin = gpu_step(cycles);
 
@@ -5105,7 +5143,6 @@ def sdl_step() {
       // Key Up/Down Event
       let code = int64(*(((_evt as *uint8) + 16) as *c_int));
       let pressed = (evt_type == 0x300);
-
       if code == 40 {
         // START => ENTER (US Keyboard)
         joy_state_start = pressed;
@@ -5132,5 +5169,69 @@ def sdl_step() {
         joy_state_right = pressed;
       }
     }
+  }
+}
+
+// =============================================================================
+// Timers
+// =============================================================================
+def div_timer_step(cycles: uint8) {
+  let cycle:uint8 = 0;
+  let TACBit:uint16 = 0;
+  let oldBit:uint16 = 0;
+
+  if (TAC > 4) {
+    // If we have the TAC enable bit set, then we need to check for a 1 - 0
+    // conversion on a specific bit. This figures out which bit.
+    if (TAC & 0x03) == 0 {
+      TACBit = 0x2000;
+    } else {
+      TACBit = 0x0001 << ((TAC & 0x03) * 2 + 1);
+    }
+    oldBit = DIV & TACBit;
+  }
+
+
+  while cycle < cycles {
+    DIV += 1;
+    // Handle TIMA inc if needed
+    if TACBit > 0 and oldBit > 0 and DIV & TACBit == 0 {
+      TIMA += 1;
+      if TIMA == 0 {
+        // We've overflowed
+        TIMA = TMA;
+        IF = IF | 0x04;
+      }
+    }
+
+    cycle += 1;
+    oldBit = DIV & TACBit;
+  }
+}
+
+def timer_write(address: uint16, value: uint8) {
+  if address == 0xFF04 {
+    DIV = 0;
+    return;
+  }
+
+  if address == 0xFF05 {
+    // TIMA
+    TIMA = value;
+    return;
+  }
+
+  if address == 0xFF06 {
+    // TMA
+    TMA = value;
+    return;
+  }
+
+  if address == 0xFF07 {
+    // TMC
+    // We only care about the last 3 bits
+    TAC = value & 0x07;
+    // printf("warn: TAC Written to: $%02X ($%02X)\n", value, TAC);
+    return;
   }
 }
