@@ -4455,7 +4455,7 @@ def cpu_reset() {
 
   // CPU registers
   AF = 0x01B0;
-  BC = 0x1300;
+  BC = 0x0013;
   DE = 0x00D8;
   HL = 0x014D;
 
