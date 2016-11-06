@@ -4823,6 +4823,10 @@ def gpu_render_scanline() {
         }
 
         let tile_y: int16 = int16(gpu_line) - sprite_y;
+        if testb(sprite_flags, 6) {
+          tile_y = 7 - tile_y;
+        }
+
         let td_address: int16 = sprite_tile * 16 + int16(tile_y) * 2;
 
         // Iterate through the columns of the sprite pixels and
