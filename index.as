@@ -31,6 +31,7 @@ let vram: *uint8;   // Video RAM – 8 KiB
 let wram: *uint8;   // Work RAM – 8 KiB
 let oam: *uint8;    // Sprite Attribute Table (OAM) – 160 B
 let hram: *uint8;   // High RAM – 127 B
+let eram: *uint8;   // External RAM – (defined by cart)
 
 // CPU: State
 let is_running = true;
@@ -84,6 +85,7 @@ def init() {
 }
 
 def reset() {
+  mmu_reset();
   joy_reset();
   gpu_reset();
   cpu_reset();
@@ -124,11 +126,39 @@ def open_rom(filename: str) {
     free(rom);
   }
 
+  // Free External ROM (if needed)
+  if eram != 0 as *uint8 {
+    free(eram);
+  }
+
   // Allocate space in ROM
   rom = malloc(length);
 
   // Read file into ROM
   fread(rom, 1, length, stream);
+
+  // Allocate space in external RAM
+  let eram_size = rom_get_ext_ram_size();
+  if eram_size > 0 {
+    eram = malloc(size_t(eram_size));
+
+    // Zero out space
+    memset(eram, 0, size_t(eram_size));
+  }
+}
+
+def rom_get_ext_ram_size(): uint16 {
+  let ext_ram_size_code = *(rom + 0x149);
+
+  return (if ext_ram_size_code == 0x01 {
+    2;
+  } else if ext_ram_size_code == 0x02 {
+    8;
+  } else if ext_ram_size_code == 0x03 {
+    32;
+  } else {
+    0;
+  }) * 1024;
 }
 
 def dump_rom() {
@@ -159,16 +189,7 @@ def dump_rom() {
   let rom_size = (32 * 1024) << *(rom + 0x148);
 
   // External RAM Size
-  let ext_ram_size_code = *(rom + 0x149);
-  let ext_ram_size = (if ext_ram_size_code == 0x01 {
-    2;
-  } else if ext_ram_size_code == 0x02 {
-    8;
-  } else if ext_ram_size_code == 0x03 {
-    32;
-  } else {
-    0;
-  }) * 1024;
+  let ext_ram_size = rom_get_ext_ram_size();
 
   // Destination Code
   let dst_code = *(rom + 0x014A);
@@ -215,11 +236,144 @@ def testb(value: uint8, n: uint8): bool {
 // [MMU] Memory Management Unit
 // =============================================================================
 
-// Read 8-bits
-def mmu_read8(address: uint16): uint8 {
+let mmu_mapper: uint8;
+
+let MM_NONE: uint8 = 0;
+let MM_MBC1: uint8 = 1;
+
+let mmu_mapper_read8: (uint16, *uint8) -> bool;
+let mmu_mapper_write8: (uint16, uint8) -> bool;
+
+// TODO: What does this start at?
+let mmu_mbc1_rom_bank: uint8 = 0x01;
+let mmu_mbc1_ram_bank: uint8 = 0x00;
+let mmu_mbc1_ram_enable = false;
+let mmu_mbc1_mode: uint8 = 0x00;
+
+def mmu_reset() {
+  // Get cartridge type
+  let cart = *(rom + 0x147);
+  if cart == 0x00 {
+    mmu_mapper = MM_NONE;
+    mmu_mapper_read8 = mmu_none_read8;
+    mmu_mapper_write8 = mmu_none_write8;
+  } else if cart == 0x01 or cart == 0x02 or cart == 0x03 {
+    mmu_mapper = MM_MBC1;
+    mmu_mapper_read8 = mmu_mbc1_read8;
+    mmu_mapper_write8 = mmu_mbc1_write8;
+  } else {
+    printf("error: unsupported memory bank controller: %02X\n", cart);
+  }
+}
+
+def mmu_none_read8(address: uint16, ptr: *uint8): bool {
   // ROM: $0000 – $7FFF
   if (address & 0xF000) <= 0x7000 {
-    return *(rom + address);
+    *ptr = *(rom + address);
+
+    return true;
+  }
+
+  return false;
+}
+
+def mmu_none_write8(address: uint16, value: uint8): bool {
+  // ROM: $0000 – $7FFF
+  if (address & 0xF000) <= 0x7000 {
+    // Deny all writes (but declare them handled)
+    return true;
+  }
+
+  return false;
+}
+
+def mmu_mbc1_read8(address: uint16, ptr: *uint8): bool {
+  if address <= 0x3FFF {
+    // This area always contains the first 16KBytes of the cartridge ROM.
+    *ptr = *(rom + address);
+  } else if address <= 0x7FFF {
+    // This area may contain any of the further 16KByte banks of the ROM,
+    // allowing to address up to 125 ROM Banks (almost 2MByte).
+    *ptr = *((rom + (mmu_mbc1_rom_bank * 0x4000)) + (address - 0x4000));
+  } else if address >= 0xA000 and address <= 0xBFFF {
+    // External RAM
+    let eram_size = rom_get_ext_ram_size();
+    let offset = address - 0xA000;
+    if mmu_mbc1_ram_enable and offset < eram_size {
+      *ptr = *((eram + (mmu_mbc1_ram_bank * 0x2000)) + offset);
+    } else {
+      // External RAM is not enabled
+      *ptr = 0xFF;
+    }
+  } else {
+    // Unhandled
+    return false;
+  }
+
+  return true;
+}
+
+def mmu_mbc1_write8(address: uint16, value: uint8): bool {
+  // TODO: If RAM Bank Number / ROM Bank Number were calculated from
+  //       the two registers it'd make this code cleaner
+
+  if address <= 0x1FFF {
+    // RAM Enable
+    mmu_mbc1_ram_enable = (value & 0x0A) != 0;
+  } else if address <= 0x3FFF {
+    // ROM Bank Number (lower 5 bits)
+    mmu_mbc1_rom_bank &= ~0x1F;
+    mmu_mbc1_rom_bank |= (value & 0x1F);
+
+    // Selecting an invalid bank will bump you up a bank
+    let n = (mmu_mbc1_rom_bank & 0x1F);
+    if n == 0x20 or n == 0x40 or n == 0x60 or n == 0x00 {
+      mmu_mbc1_rom_bank += 1;
+    }
+  } else if address <= 0x5FFF {
+    // RAM Bank Number OR Upper 2 bits of ROM Bank Number
+    if mmu_mbc1_mode == 0x00 {
+      mmu_mbc1_ram_bank = value & 0x3;
+    } else if mmu_mbc1_mode == 0x01 {
+      mmu_mbc1_rom_bank &= ~0x60;
+      mmu_mbc1_rom_bank |= (value & 0x3) << 5;
+    }
+  } else if address <= 0x7FFF {
+    // ROM/RAM Mode Select
+    let mode = value & 0x1;
+    if mode != mmu_mbc1_mode {
+      if mode == 0x00 {
+        let tmp = (mmu_mbc1_rom_bank & 0x60) >> 5;
+        mmu_mbc1_rom_bank &= ~0x60;
+        mmu_mbc1_ram_bank = tmp;
+      } else if mode == 0x01 {
+        let tmp = mmu_mbc1_ram_bank;
+        mmu_mbc1_ram_bank = 0x00;
+        mmu_mbc1_rom_bank &= ~0x60;
+        mmu_mbc1_rom_bank |= (tmp & 0x3) << 5;
+      }
+    }
+  } else if address >= 0xA000 and address <= 0xBFFF {
+    // External RAM
+    let eram_size = rom_get_ext_ram_size();
+    let offset = address - 0xA000;
+    if mmu_mbc1_ram_enable and offset < eram_size {
+      *((eram + (mmu_mbc1_ram_bank * 0x2000)) + offset) = value;
+    }
+  } else {
+    // Unhandled
+    return false;
+  }
+
+  return true;
+}
+
+// Read 8-bits
+def mmu_read8(address: uint16): uint8 {
+  // Check with memory bank controller if it handles this address
+  let rv: uint8;
+  if mmu_mapper_read8(address, &rv) {
+    return rv;
   }
 
   // Video RAM: $8000 – $9FFF
@@ -229,12 +383,6 @@ def mmu_read8(address: uint16): uint8 {
     if mode == 3 { return 0xFF; }
 
     return *(vram + (address & 0x1FFF));
-  }
-
-  // External RAM: $A000 – $BFFF
-  if (address & 0xF000) <= 0xB000 {
-    printf("warn: unhandled read from external ram: $%04X\n", address);
-    return 0xFF;
   }
 
   // Work RAM: $C000 – $DFFF
@@ -313,8 +461,8 @@ def mmu_next16(): uint16 {
 
 // Write 8-bits
 def mmu_write8(address: uint16, value: uint8) {
-  // ROM: $0000 – $7FFF
-  if (address & 0xF000) <= 0x7000 {
+  // Check with memory bank controller if it handles this address
+  if mmu_mapper_write8(address, value) {
     return;
   }
 
@@ -327,12 +475,6 @@ def mmu_write8(address: uint16, value: uint8) {
     // GPU VRAM
     *(vram + (address & 0x1FFF)) = value;
 
-    return;
-  }
-
-  // External RAM: $A000 – $BFFF
-  if (address & 0xF000) <= 0xB000 {
-    printf("warn: unhandled write to external ram: $%04X ($%02X)\n", address, value);
     return;
   }
 
