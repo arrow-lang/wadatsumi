@@ -298,13 +298,13 @@ def mmu_mbc1_read8(address: uint16, ptr: *uint8): bool {
   } else if address <= 0x7FFF {
     // This area may contain any of the further 16KByte banks of the ROM,
     // allowing to address up to 125 ROM Banks (almost 2MByte).
-    *ptr = *((rom + (mmu_mbc1_rom_bank * 0x4000)) + (address - 0x4000));
+    *ptr = *(rom + (uint64(mmu_mbc1_rom_bank) * 0x4000) + (uint64(address) - 0x4000));
   } else if address >= 0xA000 and address <= 0xBFFF {
     // External RAM
     let eram_size = rom_get_ext_ram_size();
     let offset = address - 0xA000;
     if mmu_mbc1_ram_enable and offset < eram_size {
-      *ptr = *((eram + (mmu_mbc1_ram_bank * 0x2000)) + offset);
+      *ptr = *((eram + (uint64(mmu_mbc1_ram_bank) * 0x2000)) + offset);
     } else {
       // External RAM is not enabled
       *ptr = 0xFF;
@@ -359,10 +359,10 @@ def mmu_mbc1_write8(address: uint16, value: uint8): bool {
     }
   } else if address >= 0xA000 and address <= 0xBFFF {
     // External RAM
-    let eram_size = rom_get_ext_ram_size();
-    let offset = address - 0xA000;
+    let eram_size = uint64(rom_get_ext_ram_size());
+    let offset = uint64(address) - 0xA000;
     if mmu_mbc1_ram_enable and offset < eram_size {
-      *((eram + (mmu_mbc1_ram_bank * 0x2000)) + offset) = value;
+      *((eram + (uint64(mmu_mbc1_ram_bank) * 0x2000)) + offset) = value;
     }
   } else {
     // Unhandled
@@ -620,7 +620,7 @@ def init_optable() {
   *(optable + 0x0E) = op_0E;
   *(optable + 0x0F) = op_0F;
 
-  // TODO: *(optable + 0x10) = op_10;
+  *(optable + 0x10) = op_10;
   *(optable + 0x11) = op_11;
   *(optable + 0x12) = op_12;
   *(optable + 0x13) = op_13;
@@ -1838,7 +1838,10 @@ def op_0F() {
   flag_set(FLAG_Z, false);
 }
 
-// TODO: [10] STOP
+// [10] STOP
+def op_10() {
+  cpu_stop = true;
+}
 
 // [11] LD DE, nn
 def op_11() {
@@ -4417,6 +4420,7 @@ def op_CB_FF() {
 // [CP] CPU
 // =============================================================================
 let cpu_skip;
+let cpu_stop = false;
 
 def cpu_init() {
   // Memory
@@ -4441,6 +4445,7 @@ def cpu_fini() {
 
 def cpu_reset() {
   cpu_skip = false;
+  cpu_stop = false;
 
   // CPU variables
   PC = 0x0100;
@@ -4450,7 +4455,7 @@ def cpu_reset() {
 
   // CPU registers
   AF = 0x01B0;
-  BC = 0x0013;
+  BC = 0x1300;
   DE = 0x00D8;
   HL = 0x014D;
 
@@ -4497,6 +4502,13 @@ def cpu_reset() {
 def cpu_step(): uint8 {
   CYCLES = 0;
 
+  // IF STOP; just return 0
+  if cpu_stop {
+    // STOP stops the world (until a joypad interrupt)
+    // FIXME: Allow joypad to resume STOP
+    return 0;
+  }
+
   // IF HALT; just return 4 (cycles)
   if HALT {
     if (IE & IF & 0x1F) == 0 {
@@ -4507,6 +4519,11 @@ def cpu_step(): uint8 {
   }
 
   // STEP -> Interrupts
+  if (IE & 0x02) != 0 {
+    printf("not implemented: STAT interrupt (enabled)\n");
+    exit(0);
+  }
+
   let irq = IF & IE;
   if IME and irq > 0 {
     om_push16(&PC);
