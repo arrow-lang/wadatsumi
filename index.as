@@ -222,6 +222,12 @@ def dump_rom() {
   printf("\n");
 
   free(rom_title as *uint8);
+
+  // Fail if we can't support
+  if cgb_mode == 0xC0 {
+    printf("error: ROM requires CGB (which is not implemented)\n");
+    exit(1);
+  }
 }
 
 // =============================================================================
@@ -413,6 +419,16 @@ def mmu_read8(address: uint16): uint8 {
   // High RAM (HRAM): $FF80 – $FFFE
   if (address >= 0xFF80 and address <= 0xFFFE) {
     return *(hram + ((address & 0xFF) - 0x80));
+  }
+
+  // Sound Register
+  if (
+    (address >= 0xFF10 and address <= 0xFF14) or
+    (address >= 0xFF16 and address <= 0xFF1E) or
+    (address >= 0xFF20 and address <= 0xFF26) or
+    (address >= 0xFF30 and address <= 0xFF3F)
+  ) {
+    return sound_read(address);
   }
 
   // I/O Ports
@@ -1449,7 +1465,6 @@ def init_cycletable() {
     *(cycletable_CB + (idx << 4) + 0x03) = 8;
     *(cycletable_CB + (idx << 4) + 0x04) = 8;
     *(cycletable_CB + (idx << 4) + 0x05) = 8;
-    *(cycletable_CB + (idx << 4) + 0x06) = 16;
     *(cycletable_CB + (idx << 4) + 0x07) = 8;
     *(cycletable_CB + (idx << 4) + 0x08) = 8;
     *(cycletable_CB + (idx << 4) + 0x09) = 8;
@@ -1457,8 +1472,15 @@ def init_cycletable() {
     *(cycletable_CB + (idx << 4) + 0x0B) = 8;
     *(cycletable_CB + (idx << 4) + 0x0C) = 8;
     *(cycletable_CB + (idx << 4) + 0x0D) = 8;
-    *(cycletable_CB + (idx << 4) + 0x0E) = 16;
     *(cycletable_CB + (idx << 4) + 0x0F) = 8;
+
+    if idx >= 4 and idx <= 7 {
+      *(cycletable_CB + (idx << 4) + 0x06) = 12;
+      *(cycletable_CB + (idx << 4) + 0x0E) = 12;
+    } else {
+      *(cycletable_CB + (idx << 4) + 0x06) = 16;
+      *(cycletable_CB + (idx << 4) + 0x0E) = 16;
+    }
 
     idx += 1;
   }
@@ -4600,6 +4622,12 @@ def sound_write(address: uint16, value: uint8) {
   // Do nothing (for now)
 }
 
+def sound_read(address: uint16): uint8 {
+  // TODO: Implement sound registers
+  // Do nothing (for now)
+  return 0x00;
+}
+
 // =============================================================================
 // [GP] GPU
 // =============================================================================
@@ -5036,7 +5064,7 @@ def gpu_read(address: uint16): uint8 {
   }
 
   printf("warn: unhandled read from GPU register: $%04X\n", address);
-  return 0;
+  return 0xFF;
 }
 
 def gpu_write(address: uint16, value: uint8) {
