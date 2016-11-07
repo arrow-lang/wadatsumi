@@ -10,6 +10,10 @@ extern def printf(format: str, ...);
 extern def fprintf(stream: *FILE, format: str, ...);
 extern def malloc(s: size_t): *uint8;
 extern def memset(dst: *uint8, ch: c_int, count: size_t): *uint8;
+extern def memcpy(dst: *uint8, src: *uint8, count: size_t): *uint8;
+
+extern def qsort(ptr: *uint8, count: size_t, size: size_t, comp: (*uint8, *uint8) -> c_int);
+
 extern def free(ptr: *uint8);
 extern def fopen(filename: str, mode: str): *FILE;
 extern def fclose(stream: *FILE);
@@ -4694,8 +4698,44 @@ def gpu_reset() {
   gpu_line = 0;
 }
 
+def gpu_sprite_compare(a: *uint8, b: *uint8): c_int {
+  let a_x = *(a + 1);
+  let b_x = *(b + 1);
+
+  if a_x < b_x {
+    return -1;
+  }
+
+  if b_x > a_x {
+    return 1;
+  }
+
+  if a_x == b_x {
+    let aptr = a as uint64;
+    let bptr = b as uint64;
+
+    if aptr < bptr {
+      return -1;
+    }
+
+    if bptr > aptr {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
 def gpu_render_scanline() {
   // TODO: Combine Window & Background rendering .. code is super duplicated
+
+  // Set whole line to 0x0 (clear)
+  let i = 0;
+  while i < 160 {
+    *(gpu_framebuffer + (int64(gpu_line) * 160) + i) = 0;
+
+    i += 1;
+  }
 
   // Background
   if gpu_bg_enable {
@@ -4830,6 +4870,7 @@ def gpu_render_scanline() {
 
   // Sprites
   if gpu_sprite_enable {
+
     // Sprite attributes reside in the Sprite Attribute Table (
     // OAM - Object Attribute Memory) at $FE00-FE9F.
     // Each of the 40 entries consists of four bytes with the
@@ -4846,30 +4887,49 @@ def gpu_render_scanline() {
     //    Bit3   Tile VRAM-Bank  **CGB Mode Only**     (0=Bank 0, 1=Bank 1)
     //    Bit2-0 Palette number  **CGB Mode Only**     (OBP0-7)
 
-    let i = 0;
+    let sprite_size = if gpu_sprite_size { 16; } else { 8; };
+
+    // // Sort the sprite table by priority
+    // let oam_c = malloc(40 * 4);
+    // memcpy(oam_c, oam, 40 * 4);
+    // qsort(oam_c, 40, 4, gpu_sprite_compare);
     let total = 0;
+
+    let i = 0;
     while i < 40 {
       let offset = (i * 4);
 
-      let sprite_y = int16(*(oam + offset + 0)) - 16;
-      let sprite_x = int16(*(oam + offset + 1)) - 8;
+      let sy = int16(*(oam + offset + 0)) - 16;
+      let sx = int16(*(oam + offset + 1)) - 8;
       let sprite_tile = int16(*(oam + offset + 2));
       let sprite_flags = *(oam + offset + 3);
 
       // Remember, we are rendering on a line-by-line basis
       // Does this sprite intersect our current scanline?
 
-      if sprite_y <= int16(gpu_line) and (sprite_y + 8) > int16(gpu_line) {
+      if sy <= int16(gpu_line) and (sy + sprite_size) > int16(gpu_line) {
 
         total += 1;
         if total > 10 {
-          // No more sprites
           break;
         }
 
-        let tile_y: int16 = int16(gpu_line) - sprite_y;
+        let tile_y: int16 = int16(gpu_line) - sy;
         if testb(sprite_flags, 6) {
-          tile_y = 7 - tile_y;
+          tile_y = sprite_size - 1 - tile_y;
+        }
+
+        // IFF sprite_size is 16 ..
+        if sprite_size == 16 {
+          // Top or bottom tile?
+          if tile_y < 8 {
+            // Top
+            sprite_tile &= 0xFE;
+          } else {
+            // Bottom
+            tile_y -= 8;
+            sprite_tile |= 0x01;
+          }
         }
 
         let td_address: int16 = sprite_tile * 16 + int16(tile_y) * 2;
@@ -4879,7 +4939,7 @@ def gpu_render_scanline() {
 
         let x: int16 = 0;
         while x < 8 {
-          if (sprite_x + x >= 0) and (sprite_x + x < 160) {
+          if (sx + x >= 0) and (sx + x < 160) {
             // Make a bitmask for the pixel being rendered
             let pixel_mask = 0x80 >> (if testb(sprite_flags, 5) { 7 - x; } else { x; });
 
@@ -4899,7 +4959,7 @@ def gpu_render_scanline() {
               };
 
               // Push pixel to framebuffer
-              let fbo: int64 = (int64(gpu_line) * 160) + int64(sprite_x + x);
+              let fbo: int64 = (int64(gpu_line) * 160) + int64(sx + x);
               if testb(sprite_flags, 7) {
                 let bgcolor = *(gpu_framebuffer + fbo);
                 if bgcolor == 0 {
@@ -4917,6 +4977,9 @@ def gpu_render_scanline() {
 
       i += 1;
     }
+
+    // Free temp OAM
+    // free(oam_c);
   } else {
     // Sprites not enabled
     // FIXME: Should we do anything special here?
