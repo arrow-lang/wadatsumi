@@ -4903,43 +4903,35 @@ def gpu_render_scanline() {
           }
         }
 
-        let td_address: int16 = sprite_tile * 16 + int16(tile_y) * 2;
-
         // Iterate through the columns of the sprite pixels and
         // blit them on the scanline
 
         let x: int16 = 0;
         while x < 8 {
           if (sx + x >= 0) and (sx + x < 160) {
-            // Make a bitmask for the pixel being rendered
-            let pixel_mask = 0x80 >> (if testb(sprite_flags, 5) { 7 - x; } else { x; });
+            let pixel = gpu_get_tile_pixel(
+              sprite_tile,
+              uint8(if testb(sprite_flags, 5) { 7 - x; } else { x; }),
+              uint8(tile_y));
 
-            // Check the color bits for that pixel
-            let palette_lo = if *(vram + td_address) & pixel_mask != 0 { 1; } else { 0; };
-            let palette_hi = if *(vram + td_address + 1) & pixel_mask != 0 { 1; } else { 0; };
-
-            // Combine them into a single index from 0 to 3
-            let palette_index = uint8((palette_hi << 1) | palette_lo);
             // NOTE: 0 is transparent for sprites
-            if palette_index != 0 {
+            if pixel != 0 {
               // Palette
               let color = if testb(sprite_flags, 4) {
-                (gpu_obj1_palette >> (palette_index * 2)) & 0x3;
+                (gpu_obj1_palette >> (pixel << 1)) & 0x3;
               } else {
-                (gpu_obj0_palette >> (palette_index * 2)) & 0x3;
+                (gpu_obj0_palette >> (pixel << 1)) & 0x3;
               };
 
-              if color != 0 {
-                // Push pixel to framebuffer
-                let fbo: int64 = (int64(gpu_line) * 160) + int64(sx + x);
-                if testb(sprite_flags, 7) {
-                  let bgcolor = *(gpu_framebuffer + fbo);
-                  if bgcolor == 0 {
-                    *(gpu_framebuffer + fbo) = 2;
-                  }
-                } else {
-                  *(gpu_framebuffer + fbo) = 2;
+              // Push pixel to framebuffer
+              let fbo: int64 = (int64(gpu_line) * 160) + int64(sx + x);
+              if testb(sprite_flags, 7) {
+                let bgcolor = *(gpu_framebuffer + fbo);
+                if bgcolor == 0 {
+                  *(gpu_framebuffer + fbo) = color;
                 }
+              } else {
+                *(gpu_framebuffer + fbo) = color;
               }
             }
           }
