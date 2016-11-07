@@ -393,8 +393,8 @@ def mmu_read8(address: uint16): uint8 {
   // Video RAM: $8000 – $9FFF
   if (address & 0xF000) <= 0x9000 {
     // VRAM cannot be accessed in mode 3
-    let mode = mmu_read8(0xFF41) & 3;
-    if mode == 3 { return 0xFF; }
+    // let mode = mmu_read8(0xFF41) & 3;
+    // if mode == 3 { return 0xFF; }
 
     return *(vram + (address & 0x1FFF));
   }
@@ -408,8 +408,8 @@ def mmu_read8(address: uint16): uint8 {
   // Sprite Attribute Table (OAM): $FE00 – $FE9F
   if (address >= 0xFE00) and (address <= 0xFE9F) {
     // OAM cannot be accessed in modes 2 or 3
-    let mode = mmu_read8(0xFF41) & 3;
-    if mode == 3 or mode == 2 { return 0xFF; }
+    // let mode = mmu_read8(0xFF41) & 3;
+    // if mode == 3 or mode == 2 { return 0xFF; }
 
     return *(oam + (address & 0xFF));
   }
@@ -512,8 +512,8 @@ def mmu_write8(address: uint16, value: uint8) {
   // Video RAM: $8000 – $9FFF
   if (address & 0xF000) <= 0x9000 {
     // FIXME: VRAM cannot be accessed in mode 3
-    let mode = mmu_read8(0xFF41) & 3;
-    if gpu_lcd_enable and mode == 3 { return; }
+    // let mode = mmu_read8(0xFF41) & 3;
+    // if gpu_lcd_enable and mode == 3 { return; }
 
     // GPU VRAM
     *(vram + (address & 0x1FFF)) = value;
@@ -532,8 +532,8 @@ def mmu_write8(address: uint16, value: uint8) {
   // Sprite Attribute Table (OAM): $FE00 – $FE9F
   if (address >= 0xFE00) and (address <= 0xFE9F) {
     // FIXME: OAM cannot be accessed in modes 2 or 3
-    let mode = mmu_read8(0xFF41) & 3;
-    if gpu_lcd_enable and (mode == 3 or mode == 2) { return; }
+    // let mode = mmu_read8(0xFF41) & 3;
+    // if gpu_lcd_enable and (mode == 3 or mode == 2) { return; }
 
     *(oam + (address & 0xFF)) = value;
     return;
@@ -5006,57 +5006,64 @@ def gpu_present() {
 
 def gpu_step(cycles: uint8): bool {
   gpu_mode_clock += uint16(cycles);
-  let vblank_begin = false;
+  let vblank = false;
 
-  if gpu_mode == 2 {
-    // Scanline: OAM read mode
-    if gpu_mode_clock >= 80 {
-      gpu_mode = 3;
-      gpu_mode_clock -= 80;
-    }
-  } else if gpu_mode == 3 {
-    // Scanline: VRAM read mode
-    if gpu_mode_clock >= 172 {
-      gpu_mode = 0;
-      gpu_mode_clock -= 172;
-
-      // Render Scanline
-      gpu_render_scanline();
-    }
-  } else if gpu_mode == 0 {
-    // HBLANK
-    if gpu_mode_clock >= 204 {
-      gpu_mode_clock -= 204;
-
-      if gpu_line == 143 {
-        gpu_mode = 1;
-        vblank_begin = true;
-
-        // VBLANK Interrupt
-        IF |= 0x01;
-      } else {
-        gpu_mode = 2;
+  if gpu_lcd_enable {
+    if gpu_mode == 2 {
+      // Scanline: OAM read mode
+      if gpu_mode_clock >= 80 {
+        gpu_mode = 3;
+        gpu_mode_clock -= 80;
       }
+    } else if gpu_mode == 3 {
+      // Scanline: VRAM read mode
+      if gpu_mode_clock >= 172 {
+        gpu_mode = 0;
+        gpu_mode_clock -= 172;
 
-      gpu_line += 1;
-    }
-  } else if gpu_mode == 1 {
-    // VBLANK
-    if gpu_mode_clock >= 456 {
-      gpu_mode_clock -= 456;
+        // Render Scanline
+        gpu_render_scanline();
+      }
+    } else if gpu_mode == 0 {
+      // HBLANK
+      if gpu_mode_clock >= 204 {
+        gpu_mode_clock -= 204;
 
-      if gpu_line == 0 {
-        gpu_line = 0;
-        gpu_mode = 2;
-      } else {
+        if gpu_line == 143 {
+          gpu_mode = 1;
+          vblank = true;
+
+          // VBLANK Interrupt
+          IF |= 0x01;
+        } else {
+          gpu_mode = 2;
+        }
+
         gpu_line += 1;
       }
-    } else if gpu_line == 153 and gpu_mode_clock >= 4 {
-      gpu_line = 0;
+    } else if gpu_mode == 1 {
+      // VBLANK
+      if gpu_mode_clock >= 456 {
+        gpu_mode_clock -= 456;
+
+        if gpu_line == 0 {
+          gpu_line = 0;
+          gpu_mode = 2;
+        } else {
+          gpu_line += 1;
+        }
+      } else if gpu_line == 153 and gpu_mode_clock >= 4 {
+        gpu_line = 0;
+      }
+    }
+  } else {
+    if gpu_mode_clock >= 70224 {
+      gpu_mode_clock -= 70224;
+      vblank = true;
     }
   }
 
-  return vblank_begin;
+  return vblank;
 }
 
 def gpu_read(address: uint16): uint8 {
@@ -5119,6 +5126,12 @@ def gpu_read(address: uint16): uint8 {
 def gpu_write(address: uint16, value: uint8) {
   if address == 0xFF40 {
     // LCDC - LCD Control (R/W)
+    if testb(value, 7) ^ gpu_lcd_enable {
+      gpu_line = 0;
+      gpu_mode = 0;
+      gpu_mode_clock = 0;
+    }
+
     gpu_lcd_enable = testb(value, 7);
     gpu_window_tm_select = testb(value, 6);
     gpu_window_enable = testb(value, 5);
@@ -5258,9 +5271,9 @@ def execute() {
     div_timer_step(cycles);
 
     // STEP -> GPU
-    let vblank_begin = gpu_step(cycles);
+    let vblank = gpu_step(cycles);
 
-    if vblank_begin {
+    if vblank {
       // Rasterize framebuffer
       gpu_present();
 
