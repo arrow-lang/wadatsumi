@@ -512,8 +512,8 @@ def mmu_write8(address: uint16, value: uint8) {
   // Video RAM: $8000 – $9FFF
   if (address & 0xF000) <= 0x9000 {
     // FIXME: VRAM cannot be accessed in mode 3
-    // let mode = mmu_read8(0xFF41) & 3;
-    // if mode == 3 { return; }
+    let mode = mmu_read8(0xFF41) & 3;
+    if gpu_lcd_enable and mode == 3 { return; }
 
     // GPU VRAM
     *(vram + (address & 0x1FFF)) = value;
@@ -532,8 +532,8 @@ def mmu_write8(address: uint16, value: uint8) {
   // Sprite Attribute Table (OAM): $FE00 – $FE9F
   if (address >= 0xFE00) and (address <= 0xFE9F) {
     // FIXME: OAM cannot be accessed in modes 2 or 3
-    // let mode = mmu_read8(0xFF41) & 3;
-    // if mode == 3 or mode == 2 { return; }
+    let mode = mmu_read8(0xFF41) & 3;
+    if gpu_lcd_enable and (mode == 3 or mode == 2) { return; }
 
     *(oam + (address & 0xFF)) = value;
     return;
@@ -4772,22 +4772,8 @@ def gpu_render_scanline() {
         tile = int16(int8(*(vram + map + offset))) + 256;
       }
 
-      // Tile Data
-      // tile = 0;
-      let td_address: int16 = tile * 16 + int16(y) * 2;
-
-      // Make a bitmask for the pixel being rendered
-      let pixel_mask = 0x80 >> (x % 8);
-
-      // Check the color bits for that pixel
-      let palette_lo = if *(vram + td_address) & pixel_mask != 0 { 1; } else { 0; };
-      let palette_hi = if *(vram + td_address + 1) & pixel_mask != 0 { 1; } else { 0; };
-
-      // Combine them into a single index from 0 to 3
-      let palette_index = uint8((palette_hi << 1) | palette_lo);
-
-      // Palette
-      let color = (gpu_palette >> (palette_index * 2)) & 0x3;
+      let pixel = gpu_get_tile_pixel(tile, uint8(x), uint8(y));
+      let color = (gpu_palette >> (pixel * 2)) & 0x3;
 
       // Push pixel to framebuffer
       *(gpu_framebuffer + (int64(gpu_line) * 160) + i) = color;
@@ -4839,24 +4825,9 @@ def gpu_render_scanline() {
           tile = int16(int8(*(vram + map + offset))) + 256;
         }
 
-        // Tile Data
-        // tile = 0;
-        let td_address: int16 = tile * 16 + int16(y) * 2;
+        let pixel = gpu_get_tile_pixel(tile, uint8(x), uint8(y));
+        let color = (gpu_palette >> (pixel * 2)) & 0x3;
 
-        // Make a bitmask for the pixel being rendered
-        let pixel_mask = 0x80 >> (x % 8);
-
-        // Check the color bits for that pixel
-        let palette_lo = if *(vram + td_address) & pixel_mask != 0 { 1; } else { 0; };
-        let palette_hi = if *(vram + td_address + 1) & pixel_mask != 0 { 1; } else { 0; };
-
-        // Combine them into a single index from 0 to 3
-        let palette_index = uint8((palette_hi << 1) | palette_lo);
-
-        // Palette
-        let color = (gpu_palette >> (palette_index * 2)) & 0x3;
-
-        // Push pixel to framebuffer
         *(gpu_framebuffer + (int64(gpu_line) * 160) + i) = color;
 
         x += 1;
@@ -4958,15 +4929,17 @@ def gpu_render_scanline() {
                 (gpu_obj0_palette >> (palette_index * 2)) & 0x3;
               };
 
-              // Push pixel to framebuffer
-              let fbo: int64 = (int64(gpu_line) * 160) + int64(sx + x);
-              if testb(sprite_flags, 7) {
-                let bgcolor = *(gpu_framebuffer + fbo);
-                if bgcolor == 0 {
-                  *(gpu_framebuffer + fbo) = color;
+              if color != 0 {
+                // Push pixel to framebuffer
+                let fbo: int64 = (int64(gpu_line) * 160) + int64(sx + x);
+                if testb(sprite_flags, 7) {
+                  let bgcolor = *(gpu_framebuffer + fbo);
+                  if bgcolor == 0 {
+                    *(gpu_framebuffer + fbo) = 2;
+                  }
+                } else {
+                  *(gpu_framebuffer + fbo) = 2;
                 }
-              } else {
-                *(gpu_framebuffer + fbo) = color;
               }
             }
           }
@@ -4986,6 +4959,14 @@ def gpu_render_scanline() {
   }
 }
 
+def gpu_get_tile_pixel(tile: int16, x: uint8, y: uint8): uint8 {
+  let offset: int16 = tile * 16 + int16(y) * 2;
+
+  return (
+    ((*(vram + offset + 1) >> (7 - x) << 1) & 2) |
+    ((*(vram + offset + 0) >> (7 - x)) & 1));
+}
+
 def gpu_present() {
   // Screen is 160x144
   let y = 0;
@@ -4998,14 +4979,27 @@ def gpu_present() {
 
       // AARRGGBB
       let color: uint32 = if pixel == 0 {
+        // Green
         0xFF9BBC0F;
+        // Yellow
+        // 0xFFFFFD4B;
       } else if pixel == 1 {
+        // Green
         0xFF8BB30F;
+        // Yellow
+        // 0xFFABA92F;
       } else if pixel == 2 {
+        // Green
         0xFF306230;
+        // Yellow
+        // 0xFF565413;
       } else if pixel == 3 {
+        // Green
         0xFF0F410F;
+        // Yellow
+        // 0xFF000000;
       } else {
+        printf("unhandled color");
         0;
       };
 
