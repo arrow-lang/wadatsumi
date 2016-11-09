@@ -4991,7 +4991,6 @@ def gpu_present() {
         // Yellow
         // 0xFF000000;
       } else {
-        printf("unhandled color");
         0;
       };
 
