@@ -5273,14 +5273,16 @@ def execute() {
     let vblank = gpu_step(cycles);
 
     if vblank {
-      // Rasterize framebuffer
-      gpu_present();
-
       // Poll window events
       sdl_step();
 
-      // Blit pixels
-      sdl_render();
+      if gpu_lcd_enable {
+        // Rasterize framebuffer
+        gpu_present();
+
+        // Blit pixels
+        sdl_render();
+      }
     }
   }
 }
