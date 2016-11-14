@@ -4971,23 +4971,31 @@ def gpu_present() {
 
       // AARRGGBB
       let color: uint32 = if pixel == 0 {
+        // Grayscale
+        0xFFFFFFFF;
         // Green
-        0xFF9BBC0F;
+        // 0xFF9BBC0F;
         // Yellow
         // 0xFFFFFD4B;
       } else if pixel == 1 {
+        // Grayscale
+        0xFFC0C0C0;
         // Green
-        0xFF8BB30F;
+        // 0xFF8BB30F;
         // Yellow
         // 0xFFABA92F;
       } else if pixel == 2 {
+        // Grayscale
+        0xFF606060;
         // Green
-        0xFF306230;
+        // 0xFF306230;
         // Yellow
         // 0xFF565413;
       } else if pixel == 3 {
+        // Grayscale
+        0xFF000000;
         // Green
-        0xFF0F410F;
+        // 0xFF0F410F;
         // Yellow
         // 0xFF000000;
       } else {
