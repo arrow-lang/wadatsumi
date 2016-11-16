@@ -3,6 +3,10 @@ import "libc";
 import "./machine";
 
 def at(c: *machine.Context, address: uint16): *uint8 {
+  if address < 0x50 {
+    return ((*c).font + address);
+  }
+
   if address < 0x200 {
     // Possible access into interpreter memory
     // Most accesses are illegal

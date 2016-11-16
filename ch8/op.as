@@ -7,7 +7,10 @@ import "./mmu";
 def execute(c: *machine.Context, opcode: *uint8) {
   let o = util.get4(opcode, 3);
   let oc = util.get16(opcode);
-  let r = util.get8(opcode, 0);
+  let r = util.get4(opcode, 0);
+  let rc = util.get8(opcode, 0);
+
+  // libc.printf("[%04X] %04X\n", (*c).PC, oc);
 
   // TODO: HashMap for operations might make this look nicer
 
@@ -21,20 +24,45 @@ def execute(c: *machine.Context, opcode: *uint8) {
     _1nnn(c, opcode);
   } else if o == 0x2 {
     _2nnn(c, opcode);
+  } else if o == 0x3 {
+    _3xkk(c, opcode);
+  } else if o == 0x4 {
+    _4xkk(c, opcode);
+  } else if o == 0x5 {
+    _5xy0(c, opcode);
   } else if o == 0x6 {
     _6xkk(c, opcode);
+  } else if o == 0x7 {
+    _7xkk(c, opcode);
   } else if o == 0xA {
     _Annn(c, opcode);
+  } else if o == 0xB {
+    _Bnnn(c, opcode);
+  } else if o == 0xC {
+    _Cxkk(c, opcode);
   } else if o == 0xD {
     _Dxyn(c, opcode);
-  } else if o == 0xF and r == 0x33 {
+  } else if o == 0xE and rc == 0x9E {
+    _Ex9E(c, opcode);
+  } else if o == 0xE and rc == 0xA1 {
+    _ExA1(c, opcode);
+  } else if o == 0xF and rc == 0x07 {
+    _Fx07(c, opcode);
+  } else if o == 0xF and rc == 0x15 {
+    _Fx15(c, opcode);
+  } else if o == 0xF and rc == 0x18 {
+    _Fx18(c, opcode);
+  } else if o == 0xF and rc == 0x29 {
+    _Fx29(c, opcode);
+  } else if o == 0xF and rc == 0x33 {
     _Fx33(c, opcode);
+  } else if o == 0xF and rc == 0x55 {
+    _Fx55(c, opcode);
+  } else if o == 0xF and rc == 0x65 {
+    _Fx65(c, opcode);
   } else {
     _unknown(opcode);
   }
-
-  // Increment PC
-  (*c).PC += 2;
 }
 
 // Unknown opcode
@@ -100,9 +128,17 @@ def _3xkk(c: *machine.Context, opcode: *uint8) {
 }
 
 // SNE Vx, kk
-def _3xkk(c: *machine.Context, opcode: *uint8) {
+def _4xkk(c: *machine.Context, opcode: *uint8) {
   // Skip next instruction if Vx != kk
   if *((*c).V + util.get4(opcode, 2)) != util.get8(opcode, 0) {
+    (*c).PC += 2;
+  }
+}
+
+// SE Vx, Vy
+def _5xy0(c: *machine.Context, opcode: *uint8) {
+  // Skip next instruction if Vx = Vy
+  if *((*c).V + util.get4(opcode, 2)) == *((*c).V + util.get4(opcode, 1)) {
     (*c).PC += 2;
   }
 }
@@ -113,10 +149,29 @@ def _6xkk(c: *machine.Context, opcode: *uint8) {
   *((*c).V + util.get4(opcode, 2)) = util.get8(opcode, 0);
 }
 
+// ADD Vx, kk
+def _7xkk(c: *machine.Context, opcode: *uint8) {
+  // Set Vx = Vx + kk
+  let x = util.get4(opcode, 2);
+  *((*c).V + x) = *((*c).V + x) + util.get8(opcode, 0);
+}
+
 // LD I, nnn
 def _Annn(c: *machine.Context, opcode: *uint8) {
   // Set I = nnn
   (*c).I = util.get12(opcode);
+}
+
+// JP V0, nnn
+def _Bnnn(c: *machine.Context, opcode: *uint8) {
+  // Jump to location nnn + V0
+  (*c).PC = util.get12(opcode) + uint16(*((*c).V + 0));
+}
+
+// RND Vx, kk
+def _Cxkk(c: *machine.Context, opcode: *uint8) {
+  // Set Vx = random byte AND kk
+  *((*c).V + util.get4(opcode, 2)) = uint8(libc.rand() % 256) & util.get8(opcode, 0);
 }
 
 // DRW Vx, Vy, nibble
@@ -137,10 +192,7 @@ def _Dxyn(c: *machine.Context, opcode: *uint8) {
   let y = util.get4(opcode, 1);
   let x = util.get4(opcode, 2);
 
-  libc.printf("DRAW: (V%d, V%d) x %d @ %04X\n", x, y, sprite_size, (*c).I);
-
   let ptr = mmu.at(c, (*c).I);
-
 
   let i = 0;
   while i < sprite_size {
@@ -152,7 +204,7 @@ def _Dxyn(c: *machine.Context, opcode: *uint8) {
       let plot_y = *((*c).V + y) + i;
 
       // Get offset into the framebuffer
-      let offset = uint16(plot_y) * (*c).width * uint16(plot_x);
+      let offset = uint16(plot_y) * (*c).width + uint16(plot_x);
 
       // Get the pixel to be set and the pixel currently set
       let p_cur = *((*c).framebuffer + offset);
@@ -174,6 +226,46 @@ def _Dxyn(c: *machine.Context, opcode: *uint8) {
   }
 }
 
+// SKP Vx
+def _Ex9E(c: *machine.Context, opcode: *uint8) {
+  // Skip next instruction if key with the value of Vx is pressed
+  // TODO: Keypad
+  // (*c).PC += 2;
+}
+
+// SKNP Vx
+def _ExA1(c: *machine.Context, opcode: *uint8) {
+  // Skip next instruction if key with the value of Vx is not pressed
+  // TODO: Keypad
+  (*c).PC += 2;
+}
+
+// LD Vx, DT
+def _Fx07(c: *machine.Context, opcode: *uint8) {
+  // Set Vx = DT (Delay Timer)
+  *((*c).V + util.get4(opcode, 2)) = (*c).DT;
+}
+
+// LD DT, Vx
+def _Fx15(c: *machine.Context, opcode: *uint8) {
+  // Set DT (Delay Timer) = Vx
+  (*c).DT = *((*c).V + util.get4(opcode, 2));
+}
+
+// LD ST, Vx
+def _Fx18(c: *machine.Context, opcode: *uint8) {
+  // Set ST (Sound Timer) = Vx
+  (*c).ST = *((*c).V + util.get4(opcode, 2));
+}
+
+// LDF I, Vx
+def _Fx29(c: *machine.Context, opcode: *uint8) {
+  // Set I = location of sprite for digit Vx.
+  // The value of I is set to the location for the hexadecimal sprite
+  // corresponding to the value of Vx.
+  (*c).I = uint16(*((*c).V + util.get4(opcode, 2))) * 5;
+}
+
 // BCD [I], Vx
 def _Fx33(c: *machine.Context, opcode: *uint8) {
   // Write the bcd representation of Vx to memory location I through I + 2.
@@ -181,4 +273,24 @@ def _Fx33(c: *machine.Context, opcode: *uint8) {
   mmu.write(c, (*c).I + 0, value / 100);
   mmu.write(c, (*c).I + 1, (value % 100) / 10);
   mmu.write(c, (*c).I + 2, value % 10);
+}
+
+// LD [I], Vx
+def _Fx55(c: *machine.Context, opcode: *uint8) {
+  // Store registers V0 through Vx in memory starting at location I.
+  let i = 0;
+  while i < 0x10 {
+    mmu.write(c, (*c).I + i, *((*c).V + i));
+    i += 1;
+  }
+}
+
+// LD Vx, [I]
+def _Fx65(c: *machine.Context, opcode: *uint8) {
+  // Read registers V0 through Vx from memory starting at location I.
+  let i: uint16 = 0;
+  while i < 0x10 {
+    *((*c).V + i) = mmu.read(c, (*c).I + i);
+    i += 1;
+  }
 }

@@ -148,7 +148,7 @@ def main(argc: int32, argv: *str) {
       }
     }
 
-    SDL_Delay(100);
+    // SDL_Delay(100);
   }
 
   // Finalize — Dispose context
