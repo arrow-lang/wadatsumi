@@ -29,8 +29,8 @@ struct Context {
   font: *uint8;
 
   // Screen Size
-  width: uint16;
-  height: uint16;
+  width: uint8;
+  height: uint8;
 
   // Framebuffer
   framebuffer: *uint8;

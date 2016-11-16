@@ -52,6 +52,8 @@ let SDL_RENDERER_PRESENTVSYNC: uint32 = 0x00000004;
 
 let SDL_PIXELFORMAT_ARGB8888: uint32 = 372645892;
 
+let SCALE: uint64 = 10;
+
 def main(argc: int32, argv: *str) {
   // Initialize Framebuffer ()
   let framebuffer: *uint32;
@@ -64,11 +66,11 @@ def main(argc: int32, argv: *str) {
   // Create Window
   // TODO: Allow scaling
   let window = SDL_CreateWindow(
-    "Wadatsumi", 0x1FFF0000, 0x1FFF0000, 64 * 4, 32 * 4, SDL_WINDOW_SHOWN);
+    "Wadatsumi", 0x1FFF0000, 0x1FFF0000, int32(64 * SCALE), int32(32 * SCALE), SDL_WINDOW_SHOWN);
 
   // Create renderer
   let renderer = SDL_CreateRenderer(window, -1,
-    SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    SDL_RENDERER_ACCELERATED);
 
   // White initial screen
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -134,7 +136,7 @@ def main(argc: int32, argv: *str) {
       y += 1;
     }
 
-    SDL_UpdateTexture(tex, 0 as *uint8, framebuffer as *uint8, 64 * 4);
+    SDL_UpdateTexture(tex, 0 as *uint8, framebuffer as *uint8, int32(64 * 4));
     SDL_RenderCopy(renderer, tex, 0 as *uint8, 0 as *uint8);
 
     SDL_RenderPresent(renderer);

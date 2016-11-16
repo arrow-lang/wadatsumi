@@ -34,6 +34,24 @@ def execute(c: *machine.Context, opcode: *uint8) {
     _6xkk(c, opcode);
   } else if o == 0x7 {
     _7xkk(c, opcode);
+  } else if o == 0x8 and r == 0x0 {
+    _8xy0(c, opcode);
+  } else if o == 0x8 and r == 0x1 {
+    _8xy1(c, opcode);
+  } else if o == 0x8 and r == 0x2 {
+    _8xy2(c, opcode);
+  } else if o == 0x8 and r == 0x3 {
+    _8xy3(c, opcode);
+  } else if o == 0x8 and r == 0x4 {
+    _8xy4(c, opcode);
+  } else if o == 0x8 and r == 0x5 {
+    _8xy5(c, opcode);
+  } else if o == 0x8 and r == 0x6 {
+    _8xy6(c, opcode);
+  } else if o == 0x8 and r == 0x7 {
+    _8xy7(c, opcode);
+  } else if o == 0x8 and r == 0xE {
+    _8xyE(c, opcode);
   } else if o == 0xA {
     _Annn(c, opcode);
   } else if o == 0xB {
@@ -79,14 +97,14 @@ def _unknown(opcode: *uint8) {
 def _00E0(c: *machine.Context, opcode: *uint8) {
   // Clear the Chip-8 64x32 display.
   // NOTE: Still clear this size screen, even when in High-Res mode.
-  // TODO: os.clear_screen(64, 32);
+  libc.memset((*c).framebuffer, 0, 32 * 64);
 }
 
 // HRCLS
 def _0230(c: *machine.Context, opcode: *uint8) {
   // Clear the High-Res Chip-8 64x64 display.
   // NOTE: In normal-res mode this is identical to $00E0
-  // TODO: os.clear_screen(64, (*c).height);
+  libc.memset((*c).framebuffer, 0, 64 * 64);
 }
 
 // RET
@@ -156,6 +174,100 @@ def _7xkk(c: *machine.Context, opcode: *uint8) {
   *((*c).V + x) = *((*c).V + x) + util.get8(opcode, 0);
 }
 
+// LD Vx, Vy
+def _8xy0(c: *machine.Context, opcode: *uint8) {
+  // Set Vx = Vy
+  *((*c).V + util.get4(opcode, 2)) = *((*c).V + util.get4(opcode, 1));
+}
+
+// OR Vx, Vy
+def _8xy1(c: *machine.Context, opcode: *uint8) {
+  // Bitwise OR. Set Vx = Vx OR Vy
+  *((*c).V + util.get4(opcode, 2)) |= *((*c).V + util.get4(opcode, 1));
+}
+
+// AND Vx, Vy
+def _8xy2(c: *machine.Context, opcode: *uint8) {
+  // Bitwise AND. Set Vx = Vx AND Vy
+  *((*c).V + util.get4(opcode, 2)) &= *((*c).V + util.get4(opcode, 1));
+}
+
+// XOR Vx, Vy
+def _8xy3(c: *machine.Context, opcode: *uint8) {
+  // Bitwise XOR. Set Vx = Vx XOR Vy
+  *((*c).V + util.get4(opcode, 2)) ^= *((*c).V + util.get4(opcode, 1));
+}
+
+// ADD Vx, Vy
+def _8xy4(c: *machine.Context, opcode: *uint8) {
+  // Set Vx = Vx + Vy, set VF = carry.
+
+  let x = util.get4(opcode, 2);
+  let y = util.get4(opcode, 1);
+  let result = uint16(*((*c).V + x)) + uint16(*((*c).V + y));
+
+  *((*c).V + x) = uint8(result);
+
+  // If the result is greater than 8 bits (i.e., > 255,) VF is set to 1, else 0
+  *((*c).V + 0x0F) = if result > 255 { 1; } else { 0; };
+}
+
+// SUB Vx, Vy
+def _8xy5(c: *machine.Context, opcode: *uint8) {
+  // Set Vx = Vx - Vy, set VF = NOT borrow.
+
+  let x = util.get4(opcode, 2);
+  let y = util.get4(opcode, 1);
+
+  let vx = *((*c).V + x);
+  let vy = *((*c).V + y);
+
+  // If Vx > Vy, then VF is set to 1, otherwise 0.
+  *((*c).V + 0x0F) = if vx > vy { 1; } else { 0; };
+
+  *((*c).V + x) = vx - vy;
+}
+
+// SHR Vx
+def _8xy6(c: *machine.Context, opcode: *uint8) {
+  // Right shift. Set Vx = Vx SHR 1
+  let x = util.get4(opcode, 2);
+  let vx = *((*c).V + x);
+
+  // If the least-significant bit of Vx is 1, then VF is set to 1, otherwise 0.
+  *((*c).V + 0x0F) = if vx & 0x1 != 0 { 1; } else { 0; };
+
+  *((*c).V + x) = vx >> 1;
+}
+
+// SUBN Vx, Vy
+def _8xy7(c: *machine.Context, opcode: *uint8) {
+  // Set Vx = Vy - Vx, set VF = NOT borrow.
+
+  let x = util.get4(opcode, 2);
+  let y = util.get4(opcode, 1);
+
+  let vx = *((*c).V + x);
+  let vy = *((*c).V + y);
+
+  // If Vy > Vx, then VF is set to 1, otherwise 0.
+  *((*c).V + 0x0F) = if vy > vx { 1; } else { 0; };
+
+  *((*c).V + x) = vy - vx;
+}
+
+// SHL Vx
+def _8xyE(c: *machine.Context, opcode: *uint8) {
+  // Left shift. Set Vx = Vx SHL 1
+  let x = util.get4(opcode, 2);
+  let vx = *((*c).V + x);
+
+  // If the most-significant bit of Vx is 1, then VF is set to 1, otherwise 0.
+  *((*c).V + 0x0F) = if vx & 0x80 != 0 { 1; } else { 0; };
+
+  *((*c).V + x) = vx << 1;
+}
+
 // LD I, nnn
 def _Annn(c: *machine.Context, opcode: *uint8) {
   // Set I = nnn
@@ -200,11 +312,11 @@ def _Dxyn(c: *machine.Context, opcode: *uint8) {
     while j < 8 {
       // Get (x, y) of the sprite pixel
       // TODO: Wrap around width/height
-      let plot_x = *((*c).V + x) + j;
-      let plot_y = *((*c).V + y) + i;
+      let plot_x = (*((*c).V + x) + j) & ((*c).width - 1);
+      let plot_y = (*((*c).V + y) + i) & ((*c).height - 1);
 
       // Get offset into the framebuffer
-      let offset = uint16(plot_y) * (*c).width + uint16(plot_x);
+      let offset = uint16(plot_y) * uint16((*c).width) + uint16(plot_x);
 
       // Get the pixel to be set and the pixel currently set
       let p_cur = *((*c).framebuffer + offset);
@@ -215,7 +327,7 @@ def _Dxyn(c: *machine.Context, opcode: *uint8) {
       // NOTE: Ensure that we persist the collision flag
       //  throughout the draw loop. If it gets set once; it must
       //  be set at the end.
-      *((*c).V + 0xF) = if p_cur == p_new { 1; } else { *((*c).V + 0xF); };
+      *((*c).V + 0xF) = if (p_cur == 1) and (p_new == 1) { 1; } else { *((*c).V + 0xF); };
 
       // Set the pixel (with XOR)
       *((*c).framebuffer + offset) ^= p_new;
@@ -278,8 +390,9 @@ def _Fx33(c: *machine.Context, opcode: *uint8) {
 // LD [I], Vx
 def _Fx55(c: *machine.Context, opcode: *uint8) {
   // Store registers V0 through Vx in memory starting at location I.
-  let i = 0;
-  while i < 0x10 {
+  let i: uint16 = 0;
+  let x = uint16(util.get4(opcode, 2));
+  while i < x {
     mmu.write(c, (*c).I + i, *((*c).V + i));
     i += 1;
   }
@@ -289,7 +402,8 @@ def _Fx55(c: *machine.Context, opcode: *uint8) {
 def _Fx65(c: *machine.Context, opcode: *uint8) {
   // Read registers V0 through Vx from memory starting at location I.
   let i: uint16 = 0;
-  while i < 0x10 {
+  let x = uint16(util.get4(opcode, 2));
+  while i < x {
     *((*c).V + i) = mmu.read(c, (*c).I + i);
     i += 1;
   }
