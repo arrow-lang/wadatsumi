@@ -3,6 +3,7 @@ import "libc";
 
 struct Context {
   // 16 General Registers
+  // V: [0x10]uint8;
   V: *uint8;
 
   // Index Register (16-bit)
@@ -19,20 +20,22 @@ struct Context {
   DT: uint8;
 
   // Stack (16 16-bit Slots) — SP is used to index into it
+  // stack: [0x10]uint16;
   stack: *uint16;
 
   // The CHIP-8 has 3.5 KiB of accessible RAM (no memory protections)
   // THe program ROM is loaded directly at $0
   ram: *uint8;
 
-  // FONT sprie memory
+  // FONT sprites
+  // font: [0x10][5]uint8;
   font: *uint8;
 
   // Screen Size
   width: uint8;
   height: uint8;
 
-  // Framebuffer
+  // Frame Buffer
   framebuffer: *uint8;
 }
 
@@ -52,7 +55,9 @@ def new_context(): Context {
   c.width = 64;
   c.height = 32;
 
-  // Load FONT sprites into Font RAM
+  // Initialize FONT sprites
+  // c.font[0x0] = [5]uint8{0xF0, 0x90, 0x90, 0x90, 0xF0};
+
   *(c.font + 0x00) = 0xF0;  // 0
   *(c.font + 0x01) = 0x90;
   *(c.font + 0x02) = 0x90;

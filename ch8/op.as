@@ -156,6 +156,11 @@ def _4xkk(c: *machine.Context, opcode: *uint8) {
 // SE Vx, Vy
 def _5xy0(c: *machine.Context, opcode: *uint8) {
   // Skip next instruction if Vx = Vy
+
+  // if c.V[X(opcode)] == c.V[Y(opcode)] {
+  //   c.PC += 2;
+  // }
+
   if *((*c).V + util.get4(opcode, 2)) == *((*c).V + util.get4(opcode, 1)) {
     (*c).PC += 2;
   }
