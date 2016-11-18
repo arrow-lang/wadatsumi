@@ -4,6 +4,15 @@ import "./machine";
 import "./util";
 import "./mmu";
 
+// NOTE: Idea ..
+// type Opcode = *uint8;
+// implement Opcode {
+//   @property
+//   def X(): uint8 {
+//     // [...]
+//   }
+// }
+
 def execute(c: *machine.Context, opcode: *uint8) {
   let o = util.get4(opcode, 3);
   let oc = util.get16(opcode);
@@ -70,6 +79,8 @@ def execute(c: *machine.Context, opcode: *uint8) {
     _Fx15(c, opcode);
   } else if o == 0xF and rc == 0x18 {
     _Fx18(c, opcode);
+  } else if o == 0xF and rc == 0x1E {
+    _Fx1E(c, opcode);
   } else if o == 0xF and rc == 0x29 {
     _Fx29(c, opcode);
   } else if o == 0xF and rc == 0x33 {
@@ -346,15 +357,27 @@ def _Dxyn(c: *machine.Context, opcode: *uint8) {
 // SKP Vx
 def _Ex9E(c: *machine.Context, opcode: *uint8) {
   // Skip next instruction if key with the value of Vx is pressed
-  // TODO: Keypad
-  // (*c).PC += 2;
+
+  let x = util.get4(opcode, 2);
+  let vx = *((*c).V + x);
+  let state = *((*c).input + vx);
+
+  if state {
+    (*c).PC += 2;
+  }
 }
 
 // SKNP Vx
 def _ExA1(c: *machine.Context, opcode: *uint8) {
   // Skip next instruction if key with the value of Vx is not pressed
-  // TODO: Keypad
-  (*c).PC += 2;
+
+  let x = util.get4(opcode, 2);
+  let vx = *((*c).V + x);
+  let state = *((*c).input + vx);
+
+  if not state {
+    (*c).PC += 2;
+  }
 }
 
 // LD Vx, DT
@@ -373,6 +396,13 @@ def _Fx15(c: *machine.Context, opcode: *uint8) {
 def _Fx18(c: *machine.Context, opcode: *uint8) {
   // Set ST (Sound Timer) = Vx
   (*c).ST = *((*c).V + util.get4(opcode, 2));
+}
+
+// ADD I, Vx
+def _Fx1E(c: *machine.Context, opcode: *uint8) {
+  // Set I = I + Vx
+  // TODO: c.I += c.V[opcode.X()];
+  (*c).I += uint16(*((*c).V + util.get4(opcode, 2)));
 }
 
 // LDF I, Vx

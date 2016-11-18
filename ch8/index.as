@@ -39,6 +39,21 @@ struct SDL_Event {
   kind: uint32;
 }
 
+struct SDL_Keysym {
+  scancode: libc.c_int;
+}
+
+struct SDL_KeyboardEvent {
+  kind: uint32;
+  timestamp: uint32;
+  window_id: uint32;
+  state: uint8;
+  repeat: uint8;
+  padding2: uint8;
+  padding3: uint8;
+  keysym: SDL_Keysym;
+}
+
 extern def SDL_PollEvent(evt: *SDL_Event): bool;
 
 let SDL_TEXTUREACCESS_STREAMING: libc.c_int = 1;
@@ -55,6 +70,9 @@ let SDL_PIXELFORMAT_ARGB8888: uint32 = 372645892;
 let SCALE: uint64 = 10;
 
 def main(argc: int32, argv: *str) {
+  // HACK!! We need SDL structs
+  let _evt: *uint8 = libc.malloc(1000);
+
   // Initialize Framebuffer ()
   let framebuffer: *uint32;
   framebuffer = libc.malloc(32 * 64 * 4) as *uint32;
@@ -142,11 +160,23 @@ def main(argc: int32, argv: *str) {
     SDL_RenderPresent(renderer);
 
     // Handle Events
-    let evt: SDL_Event;
-    if SDL_PollEvent(&evt) {
-      if evt.kind == 0x100 {
+    if SDL_PollEvent(_evt as *SDL_Event) {
+      let kind = (*(_evt as *SDL_Event)).kind;
+      if kind == 0x100 {
         // Quit
         running = false;
+      } else if kind == 0x300 or kind == 0x301 {
+        // Key Press OR Release
+        let which = (*(_evt as *SDL_KeyboardEvent)).keysym.scancode;
+        // libc.printf("keyboard event %x ~ %d\n", kind, which);
+
+        // TODO: Input map / configuration abstraction of some kind
+
+        if (kind == 0x300) {
+          machine.input_press(&c, uint32(which));
+        } else {
+          machine.input_release(&c, uint32(which));
+        }
       }
     }
 
@@ -155,6 +185,8 @@ def main(argc: int32, argv: *str) {
 
   // Finalize — Dispose context
   machine.dispose_context(&c);
+
+  libc.free(_evt);
 
   SDL_DestroyRenderer(renderer);
   SDL_DestroyWindow(window);

@@ -37,6 +37,11 @@ struct Context {
 
   // Frame Buffer
   framebuffer: *uint8;
+
+  // Input State
+  // Input to the Chip-8 is a hex keyboard so the input state is 16-bools
+  // True is pressed; false is released
+  input: *bool;
 }
 
 def new_context(): Context {
@@ -44,12 +49,14 @@ def new_context(): Context {
   libc.memset(&c as *uint8, 0, std.size_of<Context>());
 
   c.V = libc.malloc(0x10);
+  c.input = libc.malloc(0x10) as *bool;
   c.stack = libc.malloc(0x10 * 2) as *uint16;
   c.ram = libc.malloc(0x1000);
   c.framebuffer = libc.malloc(64 * 32);
   c.font = libc.malloc(16 * 5);
 
   libc.memset(c.framebuffer, 0, 64 * 32);
+  libc.memset(c.input as *uint8, 0, 0x10);
 
   // HACK: This should go elsewhere
   c.width = 64;
@@ -163,6 +170,7 @@ def dispose_context(c: *Context) {
   libc.free((*c).ram);
   libc.free((*c).font);
   libc.free((*c).framebuffer);
+  libc.free((*c).input as *uint8);
 }
 
 // Tick — Called per CPU tick
@@ -171,4 +179,59 @@ def tick(c: *Context) {
   // TODO: Ensure timers are decremented at 60Hz
   if (*c).DT > 0 { (*c).DT -= 1; }
   if (*c).ST > 0 { (*c).ST -= 1; }
+}
+
+// Input Press/Release
+
+// {95} NUMPAD 7 -> 1
+// {96} NUMPAD 8 -> 2
+// {97} NUMPAD 9 -> 3
+// {92} NUMPAD 4 -> 4
+// {93} NUMPAD 5 -> 5
+// {94} NUMPAD 6 -> 6
+// {89} NUMPAD 1 -> 7
+// {90} NUMPAD 2 -> 8
+// {91} NUMPAD 3 -> 9
+// {98} NUMPAD 0 -> 0
+// {99} NUMPAD . -> A
+// {88} NUMPAD ENTER -> B
+// {87} NUMPAD + -> C
+// {86} NUMPAD - -> D
+// {85} NUMPAD * -> E
+// {84} NUMPAD / -> F
+
+def convert_scancode_to_key(which: uint32): int32 {
+  return (
+    if      which == 95 { 1; }
+    else if which == 96 { 2; }
+    else if which == 97 { 3; }
+    else if which == 92 { 4; }
+    else if which == 93 { 5; }
+    else if which == 94 { 6; }
+    else if which == 89 { 7; }
+    else if which == 90 { 8; }
+    else if which == 91 { 9; }
+    else if which == 98 { 0; }
+    else if which == 99 { 0xA; }
+    else if which == 88 { 0xB; }
+    else if which == 87 { 0xC; }
+    else if which == 86 { 0xD; }
+    else if which == 85 { 0xE; }
+    else if which == 84 { 0xF; }
+    else { -1; }
+  );
+}
+
+def input_press(c: *Context, which: uint32) {
+  let key = convert_scancode_to_key(which);
+  if key < 0 { return; }
+
+  *((*c).input + key) = true;
+}
+
+def input_release(c: *Context, which: uint32) {
+  let key = convert_scancode_to_key(which);
+  if key < 0 { return; }
+
+  *((*c).input + key) = false;
 }
