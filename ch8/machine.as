@@ -42,6 +42,17 @@ struct Context {
   // Input to the Chip-8 is a hex keyboard so the input state is 16-bools
   // True is pressed; false is released
   input: *bool;
+
+  // Refresh Handler
+  on_refresh: (*Context) -> ();
+}
+
+def set_on_refresh(c: *Context, fn: (*Context) -> ()) {
+  (*c).on_refresh = fn;
+}
+
+def refresh(c: *Context) {
+  (*c).on_refresh(c);
 }
 
 def new_context(): Context {

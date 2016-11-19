@@ -18,6 +18,7 @@ def execute(c: *machine.Context, opcode: *uint8) {
   let oc = util.get16(opcode);
   let r = util.get4(opcode, 0);
   let rc = util.get8(opcode, 0);
+  let refresh = false;
 
   // libc.printf("[%04X] %04X\n", (*c).PC, oc);
 
@@ -29,6 +30,8 @@ def execute(c: *machine.Context, opcode: *uint8) {
     _00EE(c, opcode);
   } else if oc == 0x0230 {
     _0230(c, opcode);
+  } else if o == 0x0 {
+    _0nnn(c, opcode);
   } else if o == 0x1 {
     _1nnn(c, opcode);
   } else if o == 0x2 {
@@ -61,6 +64,8 @@ def execute(c: *machine.Context, opcode: *uint8) {
     _8xy7(c, opcode);
   } else if o == 0x8 and r == 0xE {
     _8xyE(c, opcode);
+  } else if o == 0x9 {
+    _9xy0(c, opcode);
   } else if o == 0xA {
     _Annn(c, opcode);
   } else if o == 0xB {
@@ -69,6 +74,7 @@ def execute(c: *machine.Context, opcode: *uint8) {
     _Cxkk(c, opcode);
   } else if o == 0xD {
     _Dxyn(c, opcode);
+    refresh = true;
   } else if o == 0xE and rc == 0x9E {
     _Ex9E(c, opcode);
   } else if o == 0xE and rc == 0xA1 {
@@ -92,6 +98,10 @@ def execute(c: *machine.Context, opcode: *uint8) {
   } else {
     _unknown(opcode);
   }
+
+  if refresh {
+    machine.refresh(c);
+  }
 }
 
 // Unknown opcode
@@ -102,6 +112,12 @@ def _unknown(opcode: *uint8) {
   );
 
   libc.exit(1);
+}
+
+// SYS
+def _0nnn(c: *machine.Context, opcode: *uint8) {
+  // Jump to a machine code routine at nnn.
+  // NOTE: Ignore
 }
 
 // CLS
@@ -284,6 +300,14 @@ def _8xyE(c: *machine.Context, opcode: *uint8) {
   *((*c).V + x) = vx << 1;
 }
 
+// SNE Vx, Vy
+def _9xy0(c: *machine.Context, opcode: *uint8) {
+  // Skip next instruction if Vx != Vy
+  if *((*c).V + util.get4(opcode, 2)) != *((*c).V + util.get4(opcode, 1)) {
+    (*c).PC += 2;
+  }
+}
+
 // LD I, nnn
 def _Annn(c: *machine.Context, opcode: *uint8) {
   // Set I = nnn
@@ -425,21 +449,13 @@ def _Fx33(c: *machine.Context, opcode: *uint8) {
 // LD [I], Vx
 def _Fx55(c: *machine.Context, opcode: *uint8) {
   // Store registers V0 through Vx in memory starting at location I.
-  let i = 0;
-  let x = uint16(util.get4(opcode, 2));
-  while i < x {
-    mmu.write(c, (*c).I + i, *((*c).V + i));
-    i += 1;
-  }
+  let x = util.get4(opcode, 2);
+  libc.memcpy(mmu.at(c, (*c).I), (*c).V, uint64(x + 1));
 }
 
 // LD Vx, [I]
 def _Fx65(c: *machine.Context, opcode: *uint8) {
   // Read registers V0 through Vx from memory starting at location I.
-  let i = 0;
-  let x = uint16(util.get4(opcode, 2));
-  while i < x {
-    *((*c).V + i) = mmu.read(c, (*c).I + i);
-    i += 1;
-  }
+  let x = util.get4(opcode, 2);
+  libc.memcpy((*c).V, mmu.at(c, (*c).I), uint64(x + 1));
 }
