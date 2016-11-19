@@ -4,68 +4,10 @@ import "libc";
 import "./cpu";
 import "./machine";
 
-// BUG: Segfaults on arrow
-// #include "SDL2/SDL.h"
+#include "SDL2/SDL.h"
 
-extern def SDL_Init(flags: uint32): libc.c_int;
-extern def SDL_Quit();
-
-extern def SDL_CreateWindow(
-  title: str,
-  x: libc.c_int, y: libc.c_int,
-  width: libc.c_int, height: libc.c_int,
-  flags: uint32
-): *uint8;
-
-extern def SDL_CreateRenderer(window: *uint8, index: libc.c_int, flags: uint32): *uint8;
-extern def SDL_CreateTexture(renderer: *uint8, format: uint32, access: libc.c_int, w: libc.c_int, h: libc.c_int): *uint8;
-
-extern def SDL_DestroyWindow(window: *uint8);
-extern def SDL_DestroyRenderer(renderer: *uint8);
-extern def SDL_DestroyTexture(texture: *uint8);
-
-extern def SDL_RenderClear(renderer: *uint8);
-extern def SDL_SetRenderDrawColor(renderer: *uint8, r: uint8, g: uint8, b: uint8, a: uint8);
-extern def SDL_RenderDrawPoint(renderer: *uint8, x: libc.c_int, y: libc.c_int);
-extern def SDL_RenderPresent(renderer: *uint8);
-extern def SDL_RenderCopy(renderer: *uint8, texture: *uint8, src: *uint8, dst: *uint8);
-
-extern def SDL_UpdateTexture(texture: *uint8, rect: *uint8, pixels: *uint8, pitch: libc.c_int);
-
-extern def SDL_Delay(ms: uint32);
-
-struct SDL_Event {
-  // Event Type
-  kind: uint32;
-}
-
-struct SDL_Keysym {
-  scancode: libc.c_int;
-}
-
-struct SDL_KeyboardEvent {
-  kind: uint32;
-  timestamp: uint32;
-  window_id: uint32;
-  state: uint8;
-  repeat: uint8;
-  padding2: uint8;
-  padding3: uint8;
-  keysym: SDL_Keysym;
-}
-
-extern def SDL_PollEvent(evt: *SDL_Event): bool;
-
-let SDL_TEXTUREACCESS_STREAMING: libc.c_int = 1;
-
+// BUG: CInclude does not get macros
 let SDL_INIT_VIDEO: uint32 = 0x00000020;
-
-let SDL_WINDOW_SHOWN: uint32 = 0x00000004;
-
-let SDL_RENDERER_ACCELERATED: uint32 = 0x00000002;
-let SDL_RENDERER_PRESENTVSYNC: uint32 = 0x00000004;
-
-let SDL_PIXELFORMAT_ARGB8888: uint32 = 372645892;
 
 let SCALE: uint64 = 10;
 
@@ -98,7 +40,8 @@ def main(argc: int32, argv: *str) {
   // Create texture
   let tex = SDL_CreateTexture(renderer,
     SDL_PIXELFORMAT_ARGB8888,
-    SDL_TEXTUREACCESS_STREAMING,
+    // BUG: CInclude has this mismatched for some reason
+    int32(SDL_TEXTUREACCESS_STREAMING),
     64, 32);
 
   // Initialize — Create new context
@@ -154,14 +97,14 @@ def main(argc: int32, argv: *str) {
       y += 1;
     }
 
-    SDL_UpdateTexture(tex, 0 as *uint8, framebuffer as *uint8, int32(64 * 4));
-    SDL_RenderCopy(renderer, tex, 0 as *uint8, 0 as *uint8);
+    SDL_UpdateTexture(tex, 0 as *SDL_Rect, framebuffer as *uint8, int32(64 * 4));
+    SDL_RenderCopy(renderer, tex, 0 as *SDL_Rect, 0 as *SDL_Rect);
 
     SDL_RenderPresent(renderer);
 
     // Handle Events
-    if SDL_PollEvent(_evt as *SDL_Event) {
-      let kind = (*(_evt as *SDL_Event)).kind;
+    if SDL_PollEvent(_evt as *SDL_Event) != 0 {
+      let kind = *(_evt as *uint32);
       if kind == 0x100 {
         // Quit
         running = false;

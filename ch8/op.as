@@ -425,7 +425,7 @@ def _Fx33(c: *machine.Context, opcode: *uint8) {
 // LD [I], Vx
 def _Fx55(c: *machine.Context, opcode: *uint8) {
   // Store registers V0 through Vx in memory starting at location I.
-  let i: uint16 = 0;
+  let i = 0;
   let x = uint16(util.get4(opcode, 2));
   while i < x {
     mmu.write(c, (*c).I + i, *((*c).V + i));
@@ -436,7 +436,7 @@ def _Fx55(c: *machine.Context, opcode: *uint8) {
 // LD Vx, [I]
 def _Fx65(c: *machine.Context, opcode: *uint8) {
   // Read registers V0 through Vx from memory starting at location I.
-  let i: uint16 = 0;
+  let i = 0;
   let x = uint16(util.get4(opcode, 2));
   while i < x {
     *((*c).V + i) = mmu.read(c, (*c).I + i);
