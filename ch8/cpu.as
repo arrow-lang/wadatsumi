@@ -21,8 +21,4 @@ def execute(c: *machine.Context) {
 
   // Decode and execute opcode
   op.execute(c, opcode);
-
-  // Tick the CPU
-  // NOTE: Each operation is exactly 1 tick
-  machine.tick(c);
 }
