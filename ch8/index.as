@@ -72,7 +72,7 @@ def refresh(c: *machine.Context) {
     let x = 0;
 
     while x < 64 {
-      let pixel: uint8 = *((*c).framebuffer + (y * 64 + x));
+      let pixel: uint8 = *(c.framebuffer + (y * 64 + x));
 
       // AARRGGBB
       let color: uint32 = if pixel == 0 {

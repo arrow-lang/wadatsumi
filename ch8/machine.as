@@ -48,11 +48,11 @@ struct Context {
 }
 
 def set_on_refresh(c: *Context, fn: (*Context) -> ()) {
-  (*c).on_refresh = fn;
+  c.on_refresh = fn;
 }
 
 def refresh(c: *Context) {
-  (*c).on_refresh(c);
+  c.on_refresh(c);
 }
 
 def new_context(): Context {
@@ -176,20 +176,20 @@ def new_context(): Context {
 }
 
 def dispose_context(c: *Context) {
-  libc.free((*c).V);
-  libc.free((*c).stack as *uint8);
-  libc.free((*c).ram);
-  libc.free((*c).font);
-  libc.free((*c).framebuffer);
-  libc.free((*c).input as *uint8);
+  libc.free(c.V);
+  libc.free(c.stack as *uint8);
+  libc.free(c.ram);
+  libc.free(c.font);
+  libc.free(c.framebuffer);
+  libc.free(c.input as *uint8);
 }
 
 // Tick — Called per CPU tick
 def tick(c: *Context) {
   // Decrement timers
   // TODO: Ensure timers are decremented at 60Hz
-  if (*c).DT > 0 { (*c).DT -= 1; }
-  if (*c).ST > 0 { (*c).ST -= 1; }
+  if c.DT > 0 { c.DT -= 1; }
+  if c.ST > 0 { c.ST -= 1; }
 }
 
 // Input Press/Release
@@ -237,12 +237,12 @@ def input_press(c: *Context, which: uint32) {
   let key = convert_scancode_to_key(which);
   if key < 0 { return; }
 
-  *((*c).input + key) = true;
+  *(c.input + key) = true;
 }
 
 def input_release(c: *Context, which: uint32) {
   let key = convert_scancode_to_key(which);
   if key < 0 { return; }
 
-  *((*c).input + key) = false;
+  *(c.input + key) = false;
 }

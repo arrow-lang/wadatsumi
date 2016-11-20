@@ -4,7 +4,7 @@ import "./machine";
 
 def at(c: *machine.Context, address: uint16): *uint8 {
   if address < 0x50 {
-    return ((*c).font + address);
+    return (c.font + address);
   }
 
   if address < 0x200 {
@@ -16,7 +16,7 @@ def at(c: *machine.Context, address: uint16): *uint8 {
     libc.exit(1);
   }
 
-  return ((*c).ram + ((address - 0x200) & 0xFFF));
+  return (c.ram + ((address - 0x200) & 0xFFF));
 }
 
 def read(c: *machine.Context, address: uint16): uint8 {
