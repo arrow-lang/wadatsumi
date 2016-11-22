@@ -1,6 +1,8 @@
 import "std";
 import "libc";
 
+import "./cpu";
+
 struct Context {
   // 16 General Registers
   // V: [0x10]uint8;
@@ -184,12 +186,48 @@ def dispose_context(c: *Context) {
   libc.free(c.input as *uint8);
 }
 
-// Tick — Called per CPU tick
-def tick(c: *Context) {
-  // Decrement timers
-  // TODO: Ensure timers are decremented at 60Hz
+// Timer: Tick
+def timer_tick(c: *Context) {
+  // Decrement delay timer
   if c.DT > 0 { c.DT -= 1; }
+
+  // Decrement sound timer
+  // TODO: Start/stop sound
   if c.ST > 0 { c.ST -= 1; }
+}
+
+
+// Run
+
+// Change to adjust execution rate
+let HZ = 540;
+// <HZ> cycles should happen each minute
+let INSTR_RATE = ((1 / HZ) * 1000);
+let TIMER_RATE = HZ / 60;
+
+let mutable _clk: uint64 = 0;
+let mutable _elapsed: float64 = 0.0;
+let mutable _counter = 0;
+
+def run(c: *Context) {
+  // Execute 1 Cycle — CPU
+  if _elapsed >= INSTR_RATE {
+    cpu.execute(c);
+    _elapsed -= INSTR_RATE;
+    _counter += 1;
+  }
+
+  // Tick machine at 60hz
+  if _counter >= TIMER_RATE {
+    timer_tick(c);
+    _counter = 0;
+  }
+
+  // Increment elapsed µs count
+  // FIXME: Platform-indepdent high-res timer (not possible
+  //          so we need to make a module in arrow's std)
+  if _clk != 0 { _elapsed += float64(libc.clock() - _clk) / 1_000; }
+  _clk = libc.clock();
 }
 
 // Input Press/Release

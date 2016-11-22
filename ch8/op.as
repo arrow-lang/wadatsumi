@@ -351,7 +351,6 @@ def _Dxyn(c: *machine.Context, opcode: *uint8) {
     let j = 0;
     while j < 8 {
       // Get (x, y) of the sprite pixel
-      // TODO: Wrap around width/height
       let plot_x = (*(c.V + x) + j) & (c.width - 1);
       let plot_y = (*(c.V + y) + i) & (c.height - 1);
 
@@ -425,7 +424,6 @@ def _Fx18(c: *machine.Context, opcode: *uint8) {
 // ADD I, Vx
 def _Fx1E(c: *machine.Context, opcode: *uint8) {
   // Set I = I + Vx
-  // TODO: c.I += c.V[opcode.X()];
   c.I += uint16(*(c.V + util.get4(opcode, 2)));
 }
 

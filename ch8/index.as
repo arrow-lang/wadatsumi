@@ -145,32 +145,9 @@ def main(argc: int32, argv: *str) {
   machine.set_on_refresh(&c, refresh);
 
   // Run
-  // FIXME: Platform-indepdent high-res timer (not possible so we need to make a module in arrow's std)
-  let clk = libc.clock();
-  let elapsed: float64 = 0;
-  // 540 cycles should happen each minute
-  // Each cycle should take ~1852µs
-  let HZ = 540;
-  let RATE: float64 = ((1 / HZ) * 1000);
-  let TIMER_RATE = HZ / 60;
-  let counter = 0;
   while _running {
-    // Execute 1 Cycle — CPU
-    if elapsed >= RATE {
-      cpu.execute(&c);
-      elapsed -= RATE;
-      counter += 1;
-    }
-
-    // Tick machine at 60hz
-    if counter >= TIMER_RATE {
-      machine.tick(&c);
-      counter = 0;
-    }
-
-    // Increment elapsed µs count
-    elapsed += float64(libc.clock() - clk) / 1_000;
-    clk = libc.clock();
+    // Run — Machine
+    machine.run(&c);
 
     // Poll — Events
     poll(&c);

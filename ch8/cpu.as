@@ -11,7 +11,7 @@ def reset(c: *machine.Context) {
   c.PC = 0x200;
 }
 
-// Execute
+// Execute Next Operation
 def execute(c: *machine.Context) {
   // Read next opcode and increment PC
   let opcode = mmu.at(c, c.PC);
