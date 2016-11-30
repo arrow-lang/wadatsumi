@@ -2905,6 +2905,16 @@ def op_CB() {
   // Set instruction time to the base/min
   CYCLES += *(cycletable_CB + opcode);
 
+  // DEBUG: TRACE
+  printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
+    PC - 1,
+    AF,
+    BC,
+    DE,
+    HL,
+    SP,
+  );
+
   // Execute instruction
   (*(optable_CB + opcode))();
 }
@@ -3086,7 +3096,10 @@ def op_EF() {
 
 // [F0] LD A, ($FF00 + n)
 def op_F0() {
-  *A = mmu_read8(0xFF00 + uint16(mmu_next8()));
+  let n = mmu_next8();
+  // printf("\tLD A, ($FF00 + $%02X)\n", n);
+  *A = mmu_read8(0xFF00 + uint16(n));
+  // printf("\t\t -> %02X\n", *A);
 }
 
 // [F1] POP AF
@@ -4612,6 +4625,18 @@ def cpu_step(): uint8 {
   // Set instruction time to the base/min
   CYCLES += *(cycletable + opcode);
 
+  if opcode != 0xCB {
+    // DEBUG: TRACE
+    printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
+      PC - 1,
+      AF,
+      BC,
+      DE,
+      HL,
+      SP,
+    );
+  }
+
   // Execute instruction
   (*(optable + opcode))();
 
@@ -5105,7 +5130,9 @@ def gpu_read(address: uint16): uint8 {
     return gpu_scx;
   } else if address == 0xFF44 {
     // LY – LCDC Y-Coordinate (R)
-    return gpu_line;
+    // FIXME
+    return 0xFF;
+    // return gpu_line;
   } else if address == 0xFF45 {
     // LYC – LY Compare (R/W)
     return gpu_line_compare;

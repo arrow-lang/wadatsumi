@@ -1,4 +1,9 @@
+import "libc";
+import "std";
+
 import "./mmu";
+import "./machine";
+import "./op";
 
 struct CPU {
   /// 16-bit program counter
@@ -8,7 +13,10 @@ struct CPU {
   SP: uint16;
 
   /// Interrupt Master Enable (IME)
-  IME: bool;
+  ///  -1 - OFF
+  ///   0 - PENDING
+  ///  +1 - ON
+  IME: int8;
 
   /// 16-bit registers
   AF: uint16;
@@ -18,6 +26,7 @@ struct CPU {
 
   /// 8-bit registers (pointers to nybbles in the 16-bit registers)
   A: *uint8;
+  F: *uint8;
   B: *uint8;
   C: *uint8;
   D: *uint8;
@@ -27,53 +36,119 @@ struct CPU {
 
   /// Number of M (machine) cycles for the current instruction
   /// Reset before each operation
-  cycles: uint16;
+  Cycles: uint32;
 
   /// Memory management unit (reference)
-  mmu: *mmu.MMU;
+  MMU: *mmu.MMU;
 
   /// Machine (reference)
-  machine: *machine.Machine;
+  Machine: *machine.Machine;
 }
 
 implement CPU {
-  def new(): Self {
-    // ...
+  def New(machine_: *machine.Machine, mmu_: *mmu.MMU): Self {
+    let c: CPU;
+    libc.memset(&c as *uint8, 0, std.size_of<CPU>());
+
+    c.Machine = machine_;
+    c.MMU = mmu_;
+
+    return c;
+  }
+
+  def Acquire(self) {
+    // Setup 8-bit register views
+    self.A = ((&self.AF as *uint8) + 1);
+    self.F = ((&self.AF as *uint8) + 0);
+    self.B = ((&self.BC as *uint8) + 1);
+    self.C = ((&self.BC as *uint8) + 0);
+    self.D = ((&self.DE as *uint8) + 1);
+    self.E = ((&self.DE as *uint8) + 0);
+    self.H = ((&self.HL as *uint8) + 1);
+    self.L = ((&self.HL as *uint8) + 0);
+  }
+
+  def Release(self) {
+    // [...]
+  }
+
+  /// Reset
+  def Reset(self) {
+    self.PC = 0x0100;
+    self.SP = 0xFFFE;
+    self.IME = 1;
+
+    self.AF = 0x01B0;
+    self.BC = 0x0013;
+    self.DE = 0x00D8;
+    self.HL = 0x014D;
   }
 
   /// Tick
   /// Steps the machine and records the M-cycle
-  def tick(self) {
-    self.machine.tick();
-    self.context.cycles += 1;
+  def Tick(self) {
+    self.Machine.Tick();
+    self.Cycles += 1;
   }
 
   /// Execute N instructions
   /// Returns the executed number of cycles
-  def execute(self, n: uint32): uint32 {
-    let cycles = 0;
+  def Run(self, this: *CPU, n: uint32): uint32 {
+    let cycles: uint32 = 0;
     while (n + 1) > 0 {
       // Reset "current" cycle count
-      self.cycles = 0;
+      self.Cycles = 0;
 
-      // Read opcode
-      let opcode = self.mmu.next8();
-      self.tick();
-
-      // Decode/lookup operation
-      let operation = op.table[opcode];
+      // Decode/lookup next operation
+      let operation = op.next(this);
 
       // Print disassembly/trace
-      // TODO: self.trace(operation);
+      // TODO: Make configurable from command line
+      // self.Trace(operation);
 
       // Execute
-      operation.execute(self);
+      // HACK: Taking the address of a reference (`self`) dies
+      operation.execute(this);
 
       // Increment total cycle count and let's do this again
-      cycles += self.cycles;
+      cycles += self.Cycles;
       n -= 1;
     }
 
     return cycles;
+  }
+
+  def Trace(self, operation: op.Operation) {
+    let buffer: str;
+    buffer = libc.malloc(128) as str;
+
+    let n0 = self.MMU.Read(self.PC + 0);
+    let n1 = self.MMU.Read(self.PC + 1);
+
+    if operation.size == 2 {
+      libc.sprintf(buffer, operation.disassembly, n0);
+    } else if operation.size == 3 {
+      libc.sprintf(buffer, operation.disassembly, n1, n0);
+    } else {
+      libc.sprintf(buffer, operation.disassembly);
+    }
+
+    libc.printf("trace: %-25s PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
+    // libc.printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
+      buffer,
+      self.PC - 1,
+      self.AF,
+      self.BC,
+      self.DE,
+      self.HL,
+      self.SP,
+    );
+  }
+
+  def ReadNext(self): uint8 {
+    let result = self.MMU.Read(self.PC);
+    self.PC += 1;
+
+    return result;
   }
 }
