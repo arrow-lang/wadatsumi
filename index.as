@@ -2906,14 +2906,14 @@ def op_CB() {
   CYCLES += *(cycletable_CB + opcode);
 
   // DEBUG: TRACE
-  printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
-    PC - 1,
-    AF,
-    BC,
-    DE,
-    HL,
-    SP,
-  );
+  // printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
+  //   PC - 1,
+  //   AF,
+  //   BC,
+  //   DE,
+  //   HL,
+  //   SP,
+  // );
 
   // Execute instruction
   (*(optable_CB + opcode))();
@@ -4567,8 +4567,6 @@ def cpu_step(): uint8 {
   if IME and irq > 0 {
     om_push16(&PC);
 
-    let pc_ = PC;
-
     if (irq & 0x01) != 0 {
       // V-Blank
       PC = 0x40;
@@ -4627,14 +4625,14 @@ def cpu_step(): uint8 {
 
   if opcode != 0xCB {
     // DEBUG: TRACE
-    printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
-      PC - 1,
-      AF,
-      BC,
-      DE,
-      HL,
-      SP,
-    );
+    // printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
+    //   PC - 1,
+    //   AF,
+    //   BC,
+    //   DE,
+    //   HL,
+    //   SP,
+    // );
   }
 
   // Execute instruction

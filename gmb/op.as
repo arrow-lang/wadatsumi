@@ -162,7 +162,7 @@ def acquire() {
   *(table + 0x73) = Operation.New(_73, "LD (HL), E", 1);
   *(table + 0x74) = Operation.New(_74, "LD (HL), H", 1);
   *(table + 0x75) = Operation.New(_75, "LD (HL), L", 1);
-  // TODO: *(table + 0x76) = Operation.New(_76, "HALT", 1);
+  *(table + 0x76) = Operation.New(_76, "HALT", 1);
   *(table + 0x77) = Operation.New(_77, "LD (HL), A", 1);
   *(table + 0x78) = Operation.New(_78, "LD A, B", 1);
   *(table + 0x79) = Operation.New(_79, "LD A, C", 1);
@@ -586,6 +586,14 @@ def next(c: *cpu.CPU): Operation {
   let r: Operation;
 
   let opcode = om.readNext8(c);
+
+  // HACK: This really belongs in cpu.as but I can't think of a better
+  //       place
+  if c.HALT == -1 {
+    c.PC -= 1;
+    c.HALT = 0;
+  }
+
   if opcode == 0xCB {
     r = *(table_CB + om.readNext8(c));
   } else {
@@ -663,7 +671,6 @@ def _09(c: *cpu.CPU) {
 // 0A — LD A, (BC) {2}
 def _0A(c: *cpu.CPU) {
   *(c.A) = om.read8(c, c.BC);
-  c.Tick();
 }
 
 // 0B — DEC BC {2}
@@ -744,7 +751,6 @@ def _19(c: *cpu.CPU) {
 // 1A — LD A, (DE) {2}
 def _1A(c: *cpu.CPU) {
   *(c.A) = om.read8(c, c.DE);
-  c.Tick();
 }
 
 // 1B — DEC DE {2}
@@ -1274,6 +1280,18 @@ def _75(c: *cpu.CPU) {
   om.write8(c, c.HL, *(c.L));
 }
 
+// 76 — HALT
+def _76(c: *cpu.CPU) {
+  // If IME is NOT enabled but IE/IF indicate there is a pending interrupt;
+  // set HALT to a funny state that will cause us to 'replay' the next
+  // opcode
+  c.HALT = if (c.IME != 1) and (c.IE & c.IF & 0x1F) != 0 {
+    -1;
+  } else {
+     1;
+  };
+}
+
 // 77 — LD (HL), A {2}
 def _77(c: *cpu.CPU) {
   om.write8(c, c.HL, *(c.A));
@@ -1656,13 +1674,13 @@ def _C1(c: *cpu.CPU) {
 def _C2(c: *cpu.CPU) {
   let address = om.readNext16(c);
   if not om.flag_get(c, om.FLAG_Z) {
-    om.jp(c, address);
+    om.jp(c, address, true);
   }
 }
 
 // C3 nn nn — JP u16 {4}
 def _C3(c: *cpu.CPU) {
-  om.jp(c, om.readNext16(c));
+  om.jp(c, om.readNext16(c), true);
 }
 
 // C4 nn nn — CALL NZ, u16 {6/3}
@@ -1706,7 +1724,7 @@ def _C9(c: *cpu.CPU) {
 def _CA(c: *cpu.CPU) {
   let address = om.readNext16(c);
   if om.flag_get(c, om.FLAG_Z) {
-    om.jp(c, address);
+    om.jp(c, address, true);
   }
 }
 
@@ -1750,7 +1768,7 @@ def _D1(c: *cpu.CPU) {
 def _D2(c: *cpu.CPU) {
   let address = om.readNext16(c);
   if not om.flag_get(c, om.FLAG_C) {
-    om.jp(c, address);
+    om.jp(c, address, true);
   }
 }
 
@@ -1796,7 +1814,7 @@ def _D9(c: *cpu.CPU) {
 def _DA(c: *cpu.CPU) {
   let address = om.readNext16(c);
   if om.flag_get(c, om.FLAG_C) {
-    om.jp(c, address);
+    om.jp(c, address, true);
   }
 }
 
@@ -1867,7 +1885,7 @@ def _E8(c: *cpu.CPU) {
 
 // E9 — JP (HL) {1}
 def _E9(c: *cpu.CPU) {
-  om.jp(c, c.HL);
+  om.jp(c, c.HL, false);
 }
 
 // EA nn nn — LD (u16), A {4}

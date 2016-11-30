@@ -204,21 +204,21 @@ def pop16(c: *cpu.CPU, r: *uint16) {
 }
 
 // Jump
-def jp(c: *cpu.CPU, address: uint16) {
+def jp(c: *cpu.CPU, address: uint16, tick: bool) {
   c.PC = address;
-  c.Tick();
+  if tick { c.Tick(); }
 }
 
 // Relative Jump
 // 7-bit relative jump address with a sign bit to indicate +/-
 def jr(c: *cpu.CPU, n: uint8) {
-  jp(c, uint16(int16(c.PC) + int16(int8(n))));
+  jp(c, uint16(int16(c.PC) + int16(int8(n))), true);
 }
 
 // Call
 def call(c: *cpu.CPU, address: uint16) {
   push16(c, &c.PC);
-  jp(c, address);
+  jp(c, address, true);
 }
 
 // Return

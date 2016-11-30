@@ -4,6 +4,7 @@ import "std";
 import "./mmu";
 import "./machine";
 import "./op";
+import "./om";
 
 struct CPU {
   /// 16-bit program counter
@@ -17,6 +18,12 @@ struct CPU {
   ///   0 - PENDING
   ///  +1 - ON
   IME: int8;
+
+  // HALT
+  //   0 - OFF
+  //   1 - ON
+  //  -1 - Funny bug state that will replay the next opcode
+  HALT: int8;
 
   /// 16-bit registers
   AF: uint16;
@@ -33,6 +40,12 @@ struct CPU {
   E: *uint8;
   H: *uint8;
   L: *uint8;
+
+  /// Interrupt Enable (IE) R/W — $FFFF
+  IE: uint8;
+
+  /// Interrupt Flag (IF) R/W — $FF0F
+  IF: uint8;
 
   /// Number of M (machine) cycles for the current instruction
   /// Reset before each operation
@@ -77,11 +90,15 @@ implement CPU {
     self.PC = 0x0100;
     self.SP = 0xFFFE;
     self.IME = 1;
+    self.HALT = 0;
 
     self.AF = 0x01B0;
     self.BC = 0x0013;
     self.DE = 0x00D8;
     self.HL = 0x014D;
+
+    self.IE = 0;
+    self.IF = 0;
   }
 
   /// Tick
@@ -98,6 +115,63 @@ implement CPU {
     while (n + 1) > 0 {
       // Reset "current" cycle count
       self.Cycles = 0;
+
+      // If during HALT and no pending interrupts ..
+      if self.HALT == 1 and (self.IE & self.IF & 0x1F) == 0 {
+        self.Tick();
+        cycles += self.Cycles;
+        n -= 1;
+
+        continue;
+      }
+
+      // Decide if we should service interrupts
+      let irq = self.IE & self.IF;
+      if self.IME == 1 and irq > 0 {
+        // Service interrupt (takes 5 cycles)
+
+        // Wait 2 cycles
+        self.Tick();
+        self.Tick();
+
+        // Push PC (as if we're making a CALL) – 2 cycles
+        om.push16(this, &self.PC);
+
+        // Jump to the appropriate vector (and reset IF bit) - 1 cycle
+        if (irq & 0x01) != 0 {
+          // V-Blank
+          om.jp(this, 0x40, true);
+          self.IF &= ~0x01;
+        } else if (irq & 0x02) != 0 {
+          // LCD STAT
+          om.jp(this, 0x48, true);
+          self.IF &= ~0x02;
+        } else if (irq & 0x04) != 0 {
+          // Timer
+          om.jp(this, 0x50, true);
+          self.IF &= ~0x04;
+        } else if (irq & 0x08) != 0 {
+          // Serial
+          om.jp(this, 0x58, true);
+          self.IF &= ~0x08;
+        } else if (irq & 0x10) != 0 {
+          // Joypad
+          om.jp(this, 0x60, true);
+          self.IF &= ~0x10;
+        }
+
+        // Disable IME
+        self.IME = -1;
+
+        // If coming back from halt; take 1 more cycle
+        if self.HALT == 1 {
+          self.HALT = 0;
+          self.Tick();
+        }
+      }
+
+      // Re-enable IME from pending
+      if self.IME == 0 { self.IME = 1; }
 
       // Decode/lookup next operation
       let operation = op.next(this);
@@ -134,7 +208,6 @@ implement CPU {
     }
 
     libc.printf("trace: %-25s PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
-    // libc.printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
       buffer,
       self.PC - 1,
       self.AF,
@@ -145,10 +218,27 @@ implement CPU {
     );
   }
 
-  def ReadNext(self): uint8 {
-    let result = self.MMU.Read(self.PC);
-    self.PC += 1;
+  def Read(self, address: uint16, value: *uint8): bool {
+    *value = if address == 0xFFFF {
+      (self.IE | 0xE0);
+    } else if address == 0xFF0F {
+      (self.IF | 0xE0);
+    } else {
+      return false;
+    };
 
-    return result;
+    return true;
+  }
+
+  def Write(self, address: uint16, value: uint8): bool {
+    if address == 0xFFFF {
+      self.IE = value & ~0xE0;
+    } else if address == 0xFF0F {
+      self.IF = value & ~0xE0;
+    } else {
+      return false;
+    }
+
+    return true;
   }
 }

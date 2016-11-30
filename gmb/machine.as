@@ -3,10 +3,12 @@ import "libc";
 import "./cpu";
 import "./mmu";
 import "./cartridge";
+import "./timer";
 
 struct Machine {
   CPU: cpu.CPU;
   MMU: mmu.MMU;
+  Timer: timer.Timer;
   Cartridge: cartridge.Cartridge;
 }
 
@@ -21,9 +23,14 @@ implement Machine {
   def Acquire(self, this: *Machine) {
     self.Cartridge = cartridge.Cartridge.New();
     self.MMU = mmu.MMU.New(&self.Cartridge);
+    self.Timer = timer.Timer.New();
 
     self.CPU = cpu.CPU.New(this, &self.MMU);
     self.CPU.Acquire();
+
+    self.Timer.Acquire(&self.CPU);
+
+    self.MMU.Acquire(&self.CPU, &self.Timer);
   }
 
   def Release(self) {
@@ -37,8 +44,9 @@ implement Machine {
   }
 
   def Reset(self) {
-    self.CPU.Reset();
     self.MMU.Reset();
+    self.Timer.Reset();
+    self.CPU.Reset();
   }
 
   def Run(self) {
@@ -46,6 +54,6 @@ implement Machine {
   }
 
   def Tick(self) {
-    // ...
+    self.Timer.Tick();
   }
 }

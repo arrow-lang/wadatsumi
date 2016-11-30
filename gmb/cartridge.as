@@ -240,5 +240,9 @@ implement Cartridge {
       self.ExternalRAM = true;
       self.Battery = true;
     }
+
+    // libc.printf("CART: %02X\n", self.Type);
+    // libc.printf("ROM: %d\n", self.ROMSize);
+    // libc.printf("RAM: %d\n", self.RAMSize);
   }
 }

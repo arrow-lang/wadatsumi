@@ -1,8 +1,14 @@
 import "libc";
 
 import "./cartridge";
+import "./cpu";
+import "./timer";
 
 struct MMU {
+  /// Components (that have Memory contorl)
+  CPU: *cpu.CPU;
+  Timer: *timer.Timer;
+
   /// Cartridge (ROM)
   Cartridge: *cartridge.Cartridge;
 
@@ -27,6 +33,11 @@ implement MMU {
     return m;
   }
 
+  def Acquire(self, cpu_: *cpu.CPU, timer_: *timer.Timer) {
+    self.CPU = cpu_;
+    self.Timer = timer_;
+  }
+
   def Release(self) {
     libc.free(self.WRAM);
     libc.free(self.HRAM);
@@ -41,30 +52,40 @@ implement MMU {
   }
 
   def Read(self, address: uint16): uint8 {
+    let value = 0xFF;
+
+    // Check handlers
+    // TODO: When we have closures we can make this an array
+    if self.CPU.Read(address, &value) { return value; }
+    if self.Timer.Read(address, &value) { return value; }
+    // if self.GPU.Read(address, &value) { return value; }
+
     // TODO: Memory mappers should control that
     if address < 0x8000 {
-      return *(self.Cartridge.ROM + address);
+      value = *(self.Cartridge.ROM + address);
+    } else if address >= 0xC000 and address <= 0xFDFF {
+      value = *(self.WRAM + (address & 0x1FFF));
+    } else if address >= 0xFF80 and address <= 0xFFFE {
+      value = *(self.HRAM + ((address & 0xFF) - 0x80));
+    } else if address == 0xFF01 {
+      // TODO: Move to a linkCable.as module
+      value = self.SB;
+    } else {
+      // libc.printf("warn: read from unhandled memory: %04X\n", address);
+
+      return 0xFF;
     }
 
-    if address >= 0xC000 and address <= 0xFDFF {
-      return *(self.WRAM + (address & 0x1FFF));
-    }
-
-    if address >= 0xFF80 and address <= 0xFFFE {
-      return *(self.HRAM + ((address & 0xFF) - 0x80));
-    }
-
-    // TODO: Move to a linkCable.as module
-    if address == 0xFF01 {
-      return self.SB;
-    }
-
-    // libc.printf("warn: read from unhandled memory: %04X\n", address);
-
-    return 0xFF;
+    return value;
   }
 
   def Write(self, address: uint16, value: uint8) {
+    // Check handlers
+    // TODO: When we have closures we can make this an array
+    if self.CPU.Write(address, value) { return; }
+    if self.Timer.Write(address, value) { return; }
+    // if self.GPU.Write(address, value) { return; }
+
     if address >= 0xC000 and address <= 0xFDFF {
       *(self.WRAM + (address & 0x1FFF)) = value;
     } else if address >= 0xFF80 and address <= 0xFFFE {
