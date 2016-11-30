@@ -76,8 +76,7 @@ implement Timer {
     // Check if we need to mess with TIMA ..
     if self.TAC & 0b100 != 0 {
       // Get ratio (in Hz) – same math as earlier
-      // TODO: Use SGB rates if in SGB mode
-      // TODO: Use base rate from SGB/CGB when in those modes
+      // TODO: Use SGB/CGB rates if in SGB/CGB mode
       let ratio = if (self.TAC & 0b11) == 0b11 {
         64;
       } else if (self.TAC & 0b11) == 0b10 {

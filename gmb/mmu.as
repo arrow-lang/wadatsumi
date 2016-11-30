@@ -1,13 +1,21 @@
 import "libc";
+import "vec";
 
 import "./cartridge";
 import "./cpu";
 import "./timer";
 
+struct MemoryController {
+  Read: (uint16, *uint8) -> bool;
+  Write: (uint16, uint8) -> bool;
+
+  // 'self' instance that would otherwise be bound to those functions
+  Instance: *uint8;
+}
+
 struct MMU {
-  /// Components (that have Memory contorl)
-  CPU: *cpu.CPU;
-  Timer: *timer.Timer;
+  /// Controllers (array)
+  Controllers: vec.Vector<MemoryController>;
 
   /// Cartridge (ROM)
   Cartridge: *cartridge.Cartridge;
