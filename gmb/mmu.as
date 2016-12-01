@@ -2,15 +2,13 @@ import "libc";
 import "vec";
 
 import "./cartridge";
-import "./cpu";
-import "./timer";
 
 struct MemoryController {
   Read: (*MemoryController, uint16, *uint8) -> bool;
   Write: (*MemoryController, uint16, uint8) -> bool;
 
   // Release (if `Data` is heap)
-  Release: (*MemoryController);
+  Release: (*MemoryController) -> ();
 
   // 'self' instance that would otherwise be bound to those functions
   Data: *uint8;
@@ -40,20 +38,18 @@ implement MMU {
     m.Cartridge = cart;
     m.WRAM = libc.malloc(0x2000);
     m.HRAM = libc.malloc(127);
+    m.Controllers = vec.Vector<MemoryController>.New();
 
     return m;
-  }
-
-  def Acquire(self, cpu_: *cpu.CPU, timer_: *timer.Timer) {
-    self.CPU = cpu_;
-    self.Timer = timer_;
   }
 
   def Release(self) {
     // Release memory controllers
     let i = 0;
     while i < self.Controllers.size {
-      self.Controllers.Get(i).Release();
+      // BUG(arrow): records must be assigned to variables before accessed right now
+      let mc = self.Controllers.Get(i);
+      mc.Release(&mc);
       i += 1;
     }
 
@@ -76,7 +72,9 @@ implement MMU {
     // Check controllers
     let i = 0;
     while i < self.Controllers.size {
-      if self.Controllers.Get(i).Read(address, &value) {
+      // BUG(arrow): records must be assigned to variables before accessed right now
+      let mc = self.Controllers.Get(i);
+      if mc.Read(&mc, address, &value) {
         return value;
       }
 
@@ -106,7 +104,9 @@ implement MMU {
     // Check controllers
     let i = 0;
     while i < self.Controllers.size {
-      if self.Controllers.Get(i).Write(address, value) {
+      // BUG(arrow): records must be assigned to variables before accessed right now
+      let mc = self.Controllers.Get(i);
+      if mc.Write(&mc, address, value) {
         return;
       }
 

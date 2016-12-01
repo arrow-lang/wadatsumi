@@ -32,9 +32,13 @@ implement Machine {
 
     self.Timer.Acquire(&self.CPU);
 
-    self.MMU.Acquire(&self.CPU, &self.Timer);
-    self.MMU.Controllers.Push(self.CPU.AsMemoryController(&self.CPU));
-    self.MMU.Controllers.Push(self.Timer.AsMemoryController(&self.Timer));
+    // BUG(Arrow) -- records need to be assigned before use
+    let mc = self.CPU.AsMemoryController(&self.CPU);
+    self.MMU.Controllers.Push(mc);
+
+    mc = self.Timer.AsMemoryController(&self.Timer);
+    self.MMU.Controllers.Push(mc);
+
     // self.MMU.Controllers.Push(self.GPU.AsMemoryController(&self.GPU));
   }
 

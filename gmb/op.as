@@ -1970,7 +1970,8 @@ def _FA(c: *cpu.CPU) {
 
 // FB — EI {1}
 def _FB(c: *cpu.CPU) {
-  // 0 - PENDING (will set to 1 after next IRQ)
+  // 0 - PENDING (will set to 1 just before next instruction
+  //              but after the interrupt check)
   c.IME = 0;
 }
 
