@@ -6,11 +6,14 @@ import "./cpu";
 import "./timer";
 
 struct MemoryController {
-  Read: (uint16, *uint8) -> bool;
-  Write: (uint16, uint8) -> bool;
+  Read: (*MemoryController, uint16, *uint8) -> bool;
+  Write: (*MemoryController, uint16, uint8) -> bool;
+
+  // Release (if `Data` is heap)
+  Release: (*MemoryController);
 
   // 'self' instance that would otherwise be bound to those functions
-  Instance: *uint8;
+  Data: *uint8;
 }
 
 struct MMU {
@@ -47,6 +50,14 @@ implement MMU {
   }
 
   def Release(self) {
+    // Release memory controllers
+    let i = 0;
+    while i < self.Controllers.size {
+      self.Controllers.Get(i).Release();
+      i += 1;
+    }
+
+    // Free (_)RAM
     libc.free(self.WRAM);
     libc.free(self.HRAM);
   }
@@ -62,11 +73,15 @@ implement MMU {
   def Read(self, address: uint16): uint8 {
     let value = 0xFF;
 
-    // Check handlers
-    // TODO: When we have closures we can make this an array
-    if self.CPU.Read(address, &value) { return value; }
-    if self.Timer.Read(address, &value) { return value; }
-    // if self.GPU.Read(address, &value) { return value; }
+    // Check controllers
+    let i = 0;
+    while i < self.Controllers.size {
+      if self.Controllers.Get(i).Read(address, &value) {
+        return value;
+      }
+
+      i += 1;
+    }
 
     // TODO: Memory mappers should control that
     if address < 0x8000 {
@@ -88,11 +103,15 @@ implement MMU {
   }
 
   def Write(self, address: uint16, value: uint8) {
-    // Check handlers
-    // TODO: When we have closures we can make this an array
-    if self.CPU.Write(address, value) { return; }
-    if self.Timer.Write(address, value) { return; }
-    // if self.GPU.Write(address, value) { return; }
+    // Check controllers
+    let i = 0;
+    while i < self.Controllers.size {
+      if self.Controllers.Get(i).Write(address, value) {
+        return;
+      }
+
+      i += 1;
+    }
 
     if address >= 0xC000 and address <= 0xFDFF {
       *(self.WRAM + (address & 0x1FFF)) = value;

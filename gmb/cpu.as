@@ -241,4 +241,26 @@ implement CPU {
 
     return true;
   }
+
+  def AsMemoryController(self, this: *CPU): mmu.MemoryController {
+    let mc: mmu.MemoryController;
+    mc.Read = MCRead;
+    mc.Write = MCWrite;
+    mc.Data = this as *uint8;
+    mc.Release = MCRelease;
+
+    return mc;
+  }
+}
+
+def MCRelease(this: *MemoryController) {
+  // Do nothing
+}
+
+def MCRead(this: *MemoryController, address: uint16, value: *uint8): bool {
+  return (this.Data as *CPU).Read(address, value);
+}
+
+def MCWrite(this: *MemoryController, address: uint16, value: uint8): bool {
+  return (this.Data as *CPU).Write(address, value);
 }

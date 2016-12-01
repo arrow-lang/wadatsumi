@@ -141,4 +141,26 @@ implement Timer {
 
     return true;
   }
+
+  def AsMemoryController(self, this: *Timer): mmu.MemoryController {
+    let mc: mmu.MemoryController;
+    mc.Read = MCRead;
+    mc.Write = MCWrite;
+    mc.Data = this as *uint8;
+    mc.Release = MCRelease;
+
+    return mc;
+  }
+}
+
+def MCRelease(this: *MemoryController) {
+  // Do nothing
+}
+
+def MCRead(this: *MemoryController, address: uint16, value: *uint8): bool {
+  return (this.Data as *Timer).Read(address, value);
+}
+
+def MCWrite(this: *MemoryController, address: uint16, value: uint8): bool {
+  return (this.Data as *Timer).Write(address, value);
 }

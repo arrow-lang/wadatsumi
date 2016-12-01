@@ -22,7 +22,9 @@ implement Machine {
   // HACK: Taking the address of a reference (`self`) dies
   def Acquire(self, this: *Machine) {
     self.Cartridge = cartridge.Cartridge.New();
+
     self.MMU = mmu.MMU.New(&self.Cartridge);
+
     self.Timer = timer.Timer.New();
 
     self.CPU = cpu.CPU.New(this, &self.MMU);
@@ -31,6 +33,9 @@ implement Machine {
     self.Timer.Acquire(&self.CPU);
 
     self.MMU.Acquire(&self.CPU, &self.Timer);
+    self.MMU.Controllers.Push(self.CPU.AsMemoryController(&self.CPU));
+    self.MMU.Controllers.Push(self.Timer.AsMemoryController(&self.Timer));
+    // self.MMU.Controllers.Push(self.GPU.AsMemoryController(&self.GPU));
   }
 
   def Release(self) {
