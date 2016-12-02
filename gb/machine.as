@@ -1,6 +1,7 @@
 import "libc";
 
 import "./cpu";
+import "./gpu";
 import "./mmu";
 import "./cartridge";
 import "./timer";
@@ -32,6 +33,9 @@ implement Machine {
     self.CPU = cpu.CPU.New(this, &self.MMU);
     self.CPU.Acquire();
 
+    self.GPU = gpu.GPU.New();
+    self.GPU.Acquire();
+
     self.Timer.Acquire(&self.CPU);
 
     // BUG(Arrow) -- records need to be assigned before use
@@ -41,11 +45,13 @@ implement Machine {
     mc = self.Timer.AsMemoryController(&self.Timer);
     self.MMU.Controllers.Push(mc);
 
-    // self.MMU.Controllers.Push(self.GPU.AsMemoryController(&self.GPU));
+    mc = self.GPU.AsMemoryController(&self.GPU);
+    self.MMU.Controllers.Push(mc);
   }
 
   def Release(self) {
     self.CPU.Release();
+    self.GPU.Release();
     self.MMU.Release();
     self.Cartridge.Release();
   }
@@ -73,6 +79,7 @@ implement Machine {
     self.MMU.Reset();
     self.Timer.Reset();
     self.CPU.Reset();
+    self.GPU.Reset();
   }
 
   def Run(self) {
@@ -81,5 +88,6 @@ implement Machine {
 
   def Tick(self) {
     self.Timer.Tick();
+    self.GPU.Tick();
   }
 }
