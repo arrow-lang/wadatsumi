@@ -10,7 +10,7 @@ bin/wadatsumi: build/wadatsumi.o
 build/wadatsumi.o: build/wadatsumi.ll
 	@ llc-3.8 -filetype=obj -o $@ $^
 
-build/wadatsumi.ll: gmb/index.as
+build/wadatsumi.ll: gb/index.as
 	@ mkdir -p build
 	@ # TODO: Add `-o` to arrow so we can avoid this hack
 	@ (arrow --compile $^ > $@ || (rm $@; exit 1)) && opt-3.8 -O3 -S -o $@ $@

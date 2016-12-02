@@ -271,7 +271,7 @@ def acquire() {
   *(table + 0xDE) = Operation.New(_DE, "SBC A, $%02X", 2);
   *(table + 0xDF) = Operation.New(_DF, "RST $18", 1);
 
-  *(table + 0xE0) = Operation.New(_E0, "LD ($FF00 + $%02X), A", 1);
+  *(table + 0xE0) = Operation.New(_E0, "LD ($FF00 + $%02X), A", 2);
   *(table + 0xE1) = Operation.New(_E1, "POP HL", 1);
   *(table + 0xE2) = Operation.New(_E2, "LD (C), A", 1);
   *(table + 0xE5) = Operation.New(_E5, "PUSH HL", 1);
@@ -1285,7 +1285,7 @@ def _76(c: *cpu.CPU) {
   // If IME is NOT enabled but IE/IF indicate there is a pending interrupt;
   // set HALT to a funny state that will cause us to 'replay' the next
   // opcode
-  c.HALT = if (c.IME != 1) and (c.IE & c.IF & 0x1F) != 0 {
+  c.HALT = if (c.IME == 0) and (c.IE & c.IF & 0x1F) != 0 {
     -1;
   } else {
      1;
@@ -1923,7 +1923,7 @@ def _F2(c: *cpu.CPU) {
 
 // F3 — DI {1}
 def _F3(c: *cpu.CPU) {
-  c.IME = -1;
+  c.IME = 0;
 }
 
 // F5 — PUSH AF {4}
@@ -1970,9 +1970,9 @@ def _FA(c: *cpu.CPU) {
 
 // FB — EI {1}
 def _FB(c: *cpu.CPU) {
-  // 0 - PENDING (will set to 1 just before next instruction
-  //              but after the interrupt check)
-  c.IME = 0;
+  // -1 - PENDING (will set to 1 just before next instruction
+  //               but after the interrupt check)
+  c.IME = -1;
 }
 
 // FE nn — CP u8 {2}

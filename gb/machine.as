@@ -5,6 +5,8 @@ import "./mmu";
 import "./cartridge";
 import "./timer";
 
+import "./mbc1";
+
 struct Machine {
   CPU: cpu.CPU;
   MMU: mmu.MMU;
@@ -50,6 +52,21 @@ implement Machine {
 
   def Open(self, filename: str) {
     self.Cartridge.Open(filename);
+
+    if self.Cartridge.MC != 0 {
+      // Push cartridge memory controller
+      let mc: mmu.MemoryController;
+      if self.Cartridge.MC == cartridge.MBC1 {
+        mc = mbc1.New(&self.Cartridge);
+      } else {
+        libc.printf("error: unsupported cartridge type: %02X\n",
+          self.Cartridge.Type);
+
+        libc.exit(-1);
+      }
+
+      self.MMU.Controllers.Push(mc);
+    }
   }
 
   def Reset(self) {
@@ -59,7 +76,7 @@ implement Machine {
   }
 
   def Run(self) {
-    self.CPU.Run(&self.CPU, 5);
+    self.CPU.Run(&self.CPU, 100);
   }
 
   def Tick(self) {

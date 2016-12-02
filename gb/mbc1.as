@@ -1,4 +1,6 @@
+import "std";
 import "libc";
+
 import "./mmu";
 import "./cartridge";
 
@@ -22,7 +24,7 @@ struct MBC1 {
 }
 
 implement MBC1 {
-  def Read(address: uint16, value: *uint8): bool {
+  def Read(self, address: uint16, value: *uint8): bool {
     if address <= 0x3FFF {
       // ROM Bank $0
       *value = *(self.Cartridge.ROM + address);
@@ -32,7 +34,7 @@ implement MBC1 {
     } else if address >= 0xA000 and address <= 0x7FFF {
       // RAM Bank $0 - $3
       let ramSize = self.Cartridge.RAMSize * 1024;
-      let offset = address - 0xA000;
+      let offset = uint32(address - 0xA000);
       if self.RAMEnable and offset < ramSize {
         *value = *((self.ERAM + (uint64(self.RAMBank) * 0x2000)) + offset);
       } else {
@@ -46,7 +48,7 @@ implement MBC1 {
     return true;
   }
 
-  def Write(address: uint16, value: uint8): bool {
+  def Write(self, address: uint16, value: uint8): bool {
     if address <= 0x1FFF {
       // RAM Enable
       self.RAMEnable = (value & 0x0A) != 0;
@@ -86,7 +88,7 @@ implement MBC1 {
     } else if address >= 0xA000 and address <= 0xBFFF {
       // External RAM
       let ramSize = self.Cartridge.RAMSize * 1024;
-      let offset = uint64(address) - 0xA000;
+      let offset = uint32(address - 0xA000);
       if self.RAMEnable and offset < ramSize {
         *((self.ERAM + (uint64(self.RAMBank) * 0x2000)) + offset) = value;
       }
@@ -103,12 +105,12 @@ def New(cartridge_: *cartridge.Cartridge): mmu.MemoryController {
   let mc: mmu.MemoryController;
   mc.Read = MCRead;
   mc.Write = MCWrite;
-  mc.Data = libc.malloc(std.size_of<MBC1>) as *uint8;
+  mc.Data = libc.malloc(std.size_of<MBC1>()) as *uint8;
   mc.Release = MCRelease;
 
   let self_ = mc.Data as *MBC1;
   self_.Cartridge = cartridge_;
-  self_.ERAM = libc.malloc(self_.Cartridge.RAMSize * 1024);
+  self_.ERAM = libc.malloc(uint64(self_.Cartridge.RAMSize * 1024));
   self_.ROMBank = 0x01;
   self_.RAMBank = 0x00;
   self_.RAMEnable = false;
@@ -117,16 +119,16 @@ def New(cartridge_: *cartridge.Cartridge): mmu.MemoryController {
   return mc;
 }
 
-def MCRelease(this: *MemoryController) {
+def MCRelease(this: *mmu.MemoryController) {
   let self_ = this.Data as *MBC1;
   libc.free(self_.ERAM);
   libc.free(this.Data);
 }
 
-def MCRead(this: *MemoryController, address: uint16, value: *uint8): bool {
+def MCRead(this: *mmu.MemoryController, address: uint16, value: *uint8): bool {
   return (this.Data as *MBC1).Read(address, value);
 }
 
-def MCWrite(this: *MemoryController, address: uint16, value: uint8): bool {
+def MCWrite(this: *mmu.MemoryController, address: uint16, value: uint8): bool {
   return (this.Data as *MBC1).Write(address, value);
 }

@@ -14,8 +14,8 @@ struct CPU {
   SP: uint16;
 
   /// Interrupt Master Enable (IME)
-  ///  -1 - OFF
-  ///   0 - PENDING
+  ///  -1 - Pending state that goes to ON
+  ///   0 - OFF
   ///  +1 - ON
   IME: int8;
 
@@ -117,12 +117,18 @@ implement CPU {
       self.Cycles = 0;
 
       // If during HALT and no pending interrupts ..
-      if self.HALT == 1 and (self.IE & self.IF & 0x1F) == 0 {
-        self.Tick();
-        cycles += self.Cycles;
-        n -= 1;
+      if self.HALT == 1 {
+        if (self.IE & self.IF & 0x1F) == 0 {
+          self.Tick();
+          cycles += self.Cycles;
+          n -= 1;
 
-        continue;
+          continue;
+        } else if self.IME == 0 {
+          // Just leave HALT mode (no interrupts are fired as
+          // we do not have them enabled but we still exit HALT)
+          self.HALT = 0;
+        }
       }
 
       // Decide if we should service interrupts
@@ -171,7 +177,7 @@ implement CPU {
       }
 
       // Re-enable IME from pending
-      if self.IME == 0 { self.IME = 1; }
+      if self.IME == -1 { self.IME = 1; }
 
       // Decode/lookup next operation
       let operation = op.next(this);
