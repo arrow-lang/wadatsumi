@@ -578,6 +578,7 @@ def mmu_write8(address: uint16, value: uint8) {
   // SC – Serial Transfer Control (R/W)
   if (address == 0xFF01 or address == 0xFF02) {
     // TODO: Implement link cable / debug printout
+    printf("LINK CABLE\n");
     return;
   }
 
@@ -2906,14 +2907,14 @@ def op_CB() {
   CYCLES += *(cycletable_CB + opcode);
 
   // DEBUG: TRACE
-  printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
-    PC - 1,
-    AF,
-    BC,
-    DE,
-    HL,
-    SP,
-  );
+  // printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
+  //   PC - 1,
+  //   AF,
+  //   BC,
+  //   DE,
+  //   HL,
+  //   SP,
+  // );
 
   // Execute instruction
   (*(optable_CB + opcode))();
@@ -4625,14 +4626,14 @@ def cpu_step(): uint8 {
 
   if opcode != 0xCB {
     // DEBUG: TRACE
-    printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
-      PC - 1,
-      AF,
-      BC,
-      DE,
-      HL,
-      SP,
-    );
+    // printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
+    //   PC - 1,
+    //   AF,
+    //   BC,
+    //   DE,
+    //   HL,
+    //   SP,
+    // );
   }
 
   // Execute instruction

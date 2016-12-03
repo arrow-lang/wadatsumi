@@ -82,7 +82,7 @@ def render(/*frame: *gpu.Frame*/) {
 }
 
 def main(argc: int32, argv: *str) {
-  acquire();
+  // acquire();
 
   // let s = shell.Shell.New();
   let m = machine.Machine.New();
@@ -104,20 +104,20 @@ def main(argc: int32, argv: *str) {
 
     // Check for window events
     // s.Run();
-    if SDL_PollEvent(_evt as *SDL_Event) != 0 {
-      let kind = *(_evt as *uint32);
-      if kind == 0x100 {
-        // Quit
-        _running = false;
-      }
-    }
+    // if SDL_PollEvent(_evt as *SDL_Event) != 0 {
+    //   let kind = *(_evt as *uint32);
+    //   if kind == 0x100 {
+    //     // Quit
+    //     _running = false;
+    //   }
+    // }
 
     // DEBUG: Render
     // TODO: This should be done on VBlank only
-    render();
+    // render();
   }
 
   m.Release();
   // s.Release();
-  release();
+  // release();
 }

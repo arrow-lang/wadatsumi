@@ -167,7 +167,7 @@ implement CPU {
         }
 
         // Disable IME
-        self.IME = -1;
+        self.IME = 0;
 
         // If coming back from halt; take 1 more cycle
         if self.HALT == 1 {
@@ -184,7 +184,7 @@ implement CPU {
 
       // Print disassembly/trace
       // TODO: Make configurable from command line
-      // self.Trace(operation);
+      self.Trace(operation);
 
       // Execute
       // HACK: Taking the address of a reference (`self`) dies

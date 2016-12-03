@@ -10,6 +10,7 @@ import "./mbc1";
 
 struct Machine {
   CPU: cpu.CPU;
+  GPU: gpu.GPU;
   MMU: mmu.MMU;
   Timer: timer.Timer;
   Cartridge: cartridge.Cartridge;
@@ -33,13 +34,15 @@ implement Machine {
     self.CPU = cpu.CPU.New(this, &self.MMU);
     self.CPU.Acquire();
 
-    self.GPU = gpu.GPU.New();
-    self.GPU.Acquire();
+    self.GPU = gpu.GPU.New(&self.CPU);
 
     self.Timer.Acquire(&self.CPU);
 
     // BUG(Arrow) -- records need to be assigned before use
     let mc = self.CPU.AsMemoryController(&self.CPU);
+    self.MMU.Controllers.Push(mc);
+
+    mc = self.GPU.AsMemoryController(&self.GPU);
     self.MMU.Controllers.Push(mc);
 
     mc = self.Timer.AsMemoryController(&self.Timer);
