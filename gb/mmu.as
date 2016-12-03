@@ -1,13 +1,22 @@
 import "libc";
+import "vec";
 
 import "./cartridge";
-import "./cpu";
-import "./timer";
+
+struct MemoryController {
+  Read: (*MemoryController, uint16, *uint8) -> bool;
+  Write: (*MemoryController, uint16, uint8) -> bool;
+
+  // Release (if `Data` is heap)
+  Release: (*MemoryController) -> ();
+
+  // 'self' instance that would otherwise be bound to those functions
+  Data: *uint8;
+}
 
 struct MMU {
-  /// Components (that have Memory contorl)
-  CPU: *cpu.CPU;
-  Timer: *timer.Timer;
+  /// Controllers (array)
+  Controllers: vec.Vector<MemoryController>;
 
   /// Cartridge (ROM)
   Cartridge: *cartridge.Cartridge;
@@ -29,16 +38,22 @@ implement MMU {
     m.Cartridge = cart;
     m.WRAM = libc.malloc(0x2000);
     m.HRAM = libc.malloc(127);
+    m.Controllers = vec.Vector<MemoryController>.New();
 
     return m;
   }
 
-  def Acquire(self, cpu_: *cpu.CPU, timer_: *timer.Timer) {
-    self.CPU = cpu_;
-    self.Timer = timer_;
-  }
-
   def Release(self) {
+    // Release memory controllers
+    let i = 0;
+    while i < self.Controllers.size {
+      // BUG(arrow): records must be assigned to variables before accessed right now
+      let mc = self.Controllers.Get(i);
+      mc.Release(&mc);
+      i += 1;
+    }
+
+    // Free (_)RAM
     libc.free(self.WRAM);
     libc.free(self.HRAM);
   }
@@ -54,11 +69,17 @@ implement MMU {
   def Read(self, address: uint16): uint8 {
     let value = 0xFF;
 
-    // Check handlers
-    // TODO: When we have closures we can make this an array
-    if self.CPU.Read(address, &value) { return value; }
-    if self.Timer.Read(address, &value) { return value; }
-    // if self.GPU.Read(address, &value) { return value; }
+    // Check controllers
+    let i = 0;
+    while i < self.Controllers.size {
+      // BUG(arrow): records must be assigned to variables before accessed right now
+      let mc = self.Controllers.Get(i);
+      if mc.Read(&mc, address, &value) {
+        return value;
+      }
+
+      i += 1;
+    }
 
     // TODO: Memory mappers should control that
     if address < 0x8000 {
@@ -80,11 +101,17 @@ implement MMU {
   }
 
   def Write(self, address: uint16, value: uint8) {
-    // Check handlers
-    // TODO: When we have closures we can make this an array
-    if self.CPU.Write(address, value) { return; }
-    if self.Timer.Write(address, value) { return; }
-    // if self.GPU.Write(address, value) { return; }
+    // Check controllers
+    let i = 0;
+    while i < self.Controllers.size {
+      // BUG(arrow): records must be assigned to variables before accessed right now
+      let mc = self.Controllers.Get(i);
+      if mc.Write(&mc, address, value) {
+        return;
+      }
+
+      i += 1;
+    }
 
     if address >= 0xC000 and address <= 0xFDFF {
       *(self.WRAM + (address & 0x1FFF)) = value;

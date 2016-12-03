@@ -1,5 +1,6 @@
 import "libc";
 import "./cpu";
+import "./mmu";
 
 struct Timer {
   CPU: *cpu.CPU;
@@ -117,4 +118,26 @@ implement Timer {
 
     return true;
   }
+
+  def AsMemoryController(self, this: *Timer): mmu.MemoryController {
+    let mc: mmu.MemoryController;
+    mc.Read = MCRead;
+    mc.Write = MCWrite;
+    mc.Data = this as *uint8;
+    mc.Release = MCRelease;
+
+    return mc;
+  }
+}
+
+def MCRelease(this: *mmu.MemoryController) {
+  // Do nothing
+}
+
+def MCRead(this: *mmu.MemoryController, address: uint16, value: *uint8): bool {
+  return (this.Data as *Timer).Read(address, value);
+}
+
+def MCWrite(this: *mmu.MemoryController, address: uint16, value: uint8): bool {
+  return (this.Data as *Timer).Write(address, value);
 }

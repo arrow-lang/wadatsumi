@@ -62,7 +62,7 @@ struct Cartridge {
   ///   8 = BANDAI TAMA5
   ///   9 = HuC3
   ///   A = HuC1
-  MBC: uint8;
+  MC: uint8;
 
   /// (External) RAM
   ExternalRAM: bool;
@@ -77,7 +77,7 @@ struct Cartridge {
   Rumble: bool;
 }
 
-/// Memory Bank Controllers
+/// Memory Controllers
 let MBC1: uint8 = 0x1;
 let MBC2: uint8 = 0x2;
 let MMMO1: uint8 = 0x3;
@@ -154,18 +154,18 @@ implement Cartridge {
     // TODO: Find a cleaner way to do this
     self.Type = *(self.ROM + 0x147);
     if self.Type == 0x01 {         // MBC1
-      self.MBC = MBC1;
+      self.MC = MBC1;
     } else if self.Type == 0x02 {  // MBC1+RAM
-      self.MBC = MBC1;
+      self.MC = MBC1;
       self.ExternalRAM = true;
     } else if self.Type == 0x03 {  // MBC1+RAM+BATTERY
-      self.MBC = MBC1;
+      self.MC = MBC1;
       self.ExternalRAM = true;
       self.Battery = true;
     } else if self.Type == 0x05 {  // MBC2
-      self.MBC = MBC2;
+      self.MC = MBC2;
     } else if self.Type == 0x06 {  // MBC2+BATTERY
-      self.MBC = MBC2;
+      self.MC = MBC2;
       self.Battery = true;
     } else if self.Type == 0x08 {  // ROM+RAM
       self.ExternalRAM = true;
@@ -173,70 +173,70 @@ implement Cartridge {
       self.ExternalRAM = true;
       self.Battery = true;
     } else if self.Type == 0x0B {  // MMM01
-      self.MBC = MMMO1;
+      self.MC = MMMO1;
     } else if self.Type == 0x0C {  // MMM01+RAM
-      self.MBC = MMMO1;
+      self.MC = MMMO1;
       self.ExternalRAM = true;
     } else if self.Type == 0x0D {  // MMM01+RAM+BATTERY
-      self.MBC = MMMO1;
+      self.MC = MMMO1;
       self.ExternalRAM = true;
       self.Battery = true;
     } else if self.Type == 0x0F {  // MBC3+TIMER+BATTERY
-      self.MBC = MBC3;
+      self.MC = MBC3;
       self.Timer = true;
       self.Battery = true;
     } else if self.Type == 0x10 {  // MBC3+TIMER+RAM+BATTERY
-      self.MBC = MBC3;
+      self.MC = MBC3;
       self.Timer = true;
       self.Battery = true;
       self.ExternalRAM = true;
     } else if self.Type == 0x11 {  // MBC3
-      self.MBC = MBC3;
+      self.MC = MBC3;
     } else if self.Type == 0x12 {  // MBC3+RAM
-      self.MBC = MBC3;
+      self.MC = MBC3;
       self.ExternalRAM = true;
     } else if self.Type == 0x13 {  // MBC3+RAM+BATTERY
-      self.MBC = MBC3;
+      self.MC = MBC3;
       self.ExternalRAM = true;
       self.Battery = true;
     } else if self.Type == 0x15 {  // MBC4
-      self.MBC = MBC4;
+      self.MC = MBC4;
     } else if self.Type == 0x16 {  // MBC4+RAM
-      self.MBC = MBC4;
+      self.MC = MBC4;
       self.ExternalRAM = true;
     } else if self.Type == 0x17 {  // MBC4+RAM+BATTERY
-      self.MBC = MBC4;
+      self.MC = MBC4;
       self.ExternalRAM = true;
       self.Battery = true;
     } else if self.Type == 0x19 {  // MBC5
-      self.MBC = MBC5;
+      self.MC = MBC5;
     } else if self.Type == 0x1A {  // MBC5+RAM
-      self.MBC = MBC5;
+      self.MC = MBC5;
       self.ExternalRAM = true;
     } else if self.Type == 0x1B {  // MBC5+RAM+BATTERY
-      self.MBC = MBC5;
+      self.MC = MBC5;
       self.ExternalRAM = true;
       self.Battery = true;
     } else if self.Type == 0x1C {  // MBC5+RUMBLE
-      self.MBC = MBC5;
+      self.MC = MBC5;
       self.Rumble = true;
     } else if self.Type == 0x1D {  // MBC5+RUMBLE+RAM
-      self.MBC = MBC5;
+      self.MC = MBC5;
       self.Rumble = true;
       self.ExternalRAM = true;
     } else if self.Type == 0x1E {  // MBC5+RUMBLE+RAM+BATTERY
-      self.MBC = MBC5;
+      self.MC = MBC5;
       self.Rumble = true;
       self.ExternalRAM = true;
       self.Battery = true;
     } else if self.Type == 0xFC {  // POCKET CAMERA
-      self.MBC = POCKET_CAMERA;
+      self.MC = POCKET_CAMERA;
     } else if self.Type == 0xFD {  // BANDAI TAMA5
-      self.MBC = BANDAI_TAMA5;
+      self.MC = BANDAI_TAMA5;
     } else if self.Type == 0xFE {  // HuC3
-      self.MBC = HuC1;
+      self.MC = HuC1;
     } else if self.Type == 0xFF {  // HuC1+RAM+BATTERY
-      self.MBC = HuC3;
+      self.MC = HuC3;
       self.ExternalRAM = true;
       self.Battery = true;
     }
