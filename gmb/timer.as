@@ -10,18 +10,12 @@ struct Timer {
   /// Writing any value to this register resets it to 00h.
   DIV: uint16;
 
-  /// CPU Cycle counter for DIV rate
-  DIVCycles: uint16;
-
   /// Timer Counter (R/W) — $FF05
   /// This timer is incremented by a clock frequency specified by the TAC
   /// register ($FF07). When the value overflows (gets bigger than FFh)
   /// then it will be reset to the value specified in TMA (FF06), and an
   /// interrupt will be requested.
   TIMA: uint8;
-
-  /// CPU Cycle counter for TIMA rate
-  TIMACycles: uint16;
 
   /// Timer Modulo (R/W) — $FF06
   /// When the TIMA overflows, this data will be loaded.
@@ -52,44 +46,29 @@ implement Timer {
     self.TIMA = 0;
     self.TMA = 0;
     self.TAC = 0;
-
-    self.DIVCycles = 0;
-    self.TIMACycles = 0;
   }
 
   def Tick(self) {
-    // Increment DIV at a constant rate
-    // Note that the gameboy operates on a rate that is significantly
-    // slower than the source (CPU) rate. We need to find a ratio.
-    //   GB: 16384 Hz      {4194304 Hz}   (256 : 1)
-    //  SGB: 16779 Hz      {4295454 Hz}   (256 : 1)
-    //  CGB: 32768 Hz (*)  {8400000 Hz}   (256 : 1)
-    // Taking that into account.. every 256 CPU clocks (constant), the
-    // DIV timer is ticked once. We measure in M-times which brings the
-    // ratio to 64 CPU ticks per DIV tick.
-    self.DIVCycles += 1;
-    if self.DIVCycles >= 64 {
+    // If we have the TAC enable bit set, then we need to check for a 1 - 0
+    // conversion on a specific bit. This figures out which bit.
+    //  1 -> b03
+    //  2 -> b05
+    //  3 -> b07
+    //  0 -> b09
+    let freq = self.TAC & 0b11;
+    let b = 0x200 if freq == 0 else (0x1 << ((freq << 1) + 1));
+
+    // DIV increments on each T-cycle; this `tick` routine is called
+    // on each M-cycle (which is exactly 4 T-cycles).
+    let n = 0;
+    while n < 4 {
+      // Remember the value of our watched bit on DIV
+      let oldBit = self.DIV & b;
+
+      // Increment DIV
       self.DIV += 1;
-      self.DIVCycles -= 64;
-    }
 
-    // Check if we need to mess with TIMA ..
-    if self.TAC & 0b100 != 0 {
-      // Get ratio (in Hz) – same math as earlier
-      // TODO: Use SGB rates if in SGB mode
-      // TODO: Use base rate from SGB/CGB when in those modes
-      let ratio = if (self.TAC & 0b11) == 0b11 {
-        64;
-      } else if (self.TAC & 0b11) == 0b10 {
-        16;
-      } else if (self.TAC & 0b11) == 0b01 {
-        4;
-      } else {
-        256;
-      };
-
-      self.TIMACycles += 1;
-      if self.TIMACycles >= ratio {
+      if (self.TAC & 0b100) != 0 and oldBit > 0 and (self.DIV & b) == 0 {
         // Check for 8-bit overflow
         if (uint16(self.TIMA) + 1) & 0xFF == 0 {
           // Set the overflow sentinel
@@ -98,11 +77,12 @@ implement Timer {
           // Flag the interrupt
           self.CPU.IF |= 0b100;
         } else {
+          // Increment TIMA
           self.TIMA += 1;
         }
-
-        self.TIMACycles -= ratio;
       }
+
+      n += 1;
     }
   }
 
@@ -131,11 +111,6 @@ implement Timer {
       self.TMA = value;
     } else if address == 0xFF07 {
       self.TAC = (value & 0b111);
-
-      // If TIMA is disabled; clear cycle count
-      if self.TAC & 0b100 == 0 {
-        self.TIMACycles = 0;
-      }
     } else {
       return false;
     }
