@@ -54,7 +54,7 @@ def acquire() {
   *(table + 0x0E) = Operation.New(_0E, "LD C, $%02X", 2);
   *(table + 0x0F) = Operation.New(_0F, "RRCA", 1);
 
-  // TODO: *(table + 0x10) = Operation.New(_10, "STOP", 1);
+  *(table + 0x10) = Operation.New(_10, "STOP", 1);
   *(table + 0x11) = Operation.New(_11, "LD DE, $%02X%02X", 3);
   *(table + 0x12) = Operation.New(_12, "LD (DE), A", 1);
   *(table + 0x13) = Operation.New(_13, "INC DE", 1);
@@ -698,6 +698,11 @@ def _0E(c: *cpu.CPU) {
 def _0F(c: *cpu.CPU) {
   *(c.A) = om.rotr8(c, *(c.A), false);
   om.flag_set(c, om.FLAG_Z, false);
+}
+
+// 10 — STOP
+def _10(c: *cpu.CPU) {
+  libc.printf("warn: unsupported STOP\n");
 }
 
 // 11 nn nn — LD DE, u16 {3}

@@ -121,10 +121,6 @@ implement MMU {
       value = *(self.WRAM + (address & 0x1FFF));
     } else if address >= 0xFF80 and address <= 0xFFFE {
       value = *(self.HRAM + ((address & 0xFF) - 0x80));
-    } else {
-      // libc.printf("warn: read from unhandled memory: %04X\n", address);
-
-      return 0xFF;
     }
 
     return value;

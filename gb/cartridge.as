@@ -195,9 +195,13 @@ implement Cartridge {
       self.HasBattery = true;
     } else if self.Type == 0x05 {  // MBC2
       self.MC = MBC2;
+      self.HasExternalRAM = true;
+      self.ExternalRAMSize = 512;
     } else if self.Type == 0x06 {  // MBC2+BATTERY
       self.MC = MBC2;
       self.HasBattery = true;
+      self.HasExternalRAM = true;
+      self.ExternalRAMSize = 512;
     } else if self.Type == 0x08 {  // ROM+RAM
       self.HasExternalRAM = true;
     } else if self.Type == 0x09 {  // ROM+RAM+BATTERY
