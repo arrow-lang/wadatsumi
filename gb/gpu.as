@@ -248,14 +248,14 @@ implement GPU {
   }
 
   def RenderWindow(self) {
-    if self.LY > self.WY {
+    if self.LY >= self.WY {
       // Tile Map (Offset)
       let map: uint64 = 0x1C00 if self.WindowTileMapSelect else 0x1800;
       map += uint64((self.LY - self.WY) >> 3) << 5;
 
       let i = uint64(self.WX);
       let x: uint8 = 0;
-      let y = uint8(self.LY % 8);
+      let y = uint8((self.LY - self.WY) % 8);
       let offset = uint64(self.LY) * DISP_WIDTH;
 
       while i < DISP_WIDTH {
