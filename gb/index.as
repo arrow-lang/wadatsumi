@@ -66,12 +66,9 @@ def release() {
 }
 
 def render(frame: *gpu.Frame) {
-  // Render
-  // SDL_SetRenderDrawColor(_renderer, 155, 188, 15, 255);
   SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
   SDL_RenderClear(_renderer);
 
-  // TODO: Update pixels on framebuffer
   SDL_UpdateTexture(_tex, 0 as *SDL_Rect, frame.Data, int32(frame.Pitch));
   SDL_RenderCopy(_renderer, _tex, 0 as *SDL_Rect, 0 as *SDL_Rect);
 
