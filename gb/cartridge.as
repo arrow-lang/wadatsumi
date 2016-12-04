@@ -2,14 +2,20 @@ import "std";
 import "libc";
 
 struct Cartridge {
+  /// Filename (from ROM)
+  Filename: str;
+
   /// Read-only Memory (from Cart)
   ROM: *uint8;
 
-  /// ROM Size (in KiB)
-  ROMSize: uint32;
+  /// ROM Size (in B)
+  ROMSize: uint64;
 
-  /// RAM Size (in KiB)
-  RAMSize: uint32;
+  /// Exernal RAM (if present)
+  ExternalRAM: *uint8;
+
+  /// External RAM Size (in B)
+  ExternalRAMSize: uint64;
 
   /// Title (in ASCII)
   Title: str;
@@ -64,17 +70,11 @@ struct Cartridge {
   ///   A = HuC1
   MC: uint8;
 
-  /// (External) RAM
-  ExternalRAM: bool;
-
-  /// Battery-backed
-  Battery: bool;
-
-  /// Timer
-  Timer: bool;
-
-  /// Rumble
-  Rumble: bool;
+  /// Components
+  HasExternalRAM: bool;
+  HasBattery: bool;
+  HasTimer: bool;
+  HasRumble: bool;
 }
 
 /// Memory Controllers
@@ -103,9 +103,20 @@ implement Cartridge {
     if self.ROM != std.null<uint8>() {
       libc.free(self.ROM);
     }
+
+    if self.ExternalRAM != std.null<uint8>() {
+      // Write out ERAM before release if backed by battery
+      if self.HasBattery {
+        self.WriteExternalSAV();
+      }
+
+      libc.free(self.ExternalRAM);
+    }
   }
 
   def Open(self, filename: str) {
+    self.Filename = filename;
+
     let stream = libc.fopen(filename, "rb");
     if stream == std.null<libc.FILE>() {
       libc.printf("error: couldn't read \"%s\"; couldn't open path as file\n", filename);
@@ -129,7 +140,7 @@ implement Cartridge {
     self.Title = (self.ROM + 0x0134) as str;
 
     // Get ROM size
-    self.ROMSize = uint32(*(self.ROM + 0x0148));
+    self.ROMSize = uint64(*(self.ROM + 0x0148));
     if self.ROMSize < 0x10 {
       self.ROMSize = 32 << self.ROMSize;
     } else if self.ROMSize == 0x52 {
@@ -140,15 +151,19 @@ implement Cartridge {
       self.ROMSize = 1536;
     }
 
+    self.ROMSize *= 1024;
+
     // Get RAM size
-    self.RAMSize = uint32(*(self.ROM + 0x0149));
-    if self.RAMSize == 0x01 {
-      self.RAMSize = 2;
-    } else if self.RAMSize == 0x02 {
-      self.RAMSize = 8;
-    } else if self.RAMSize == 0x03 {
-      self.RAMSize = 32;
+    self.ExternalRAMSize = uint64(*(self.ROM + 0x0149));
+    if self.ExternalRAMSize == 0x01 {
+      self.ExternalRAMSize = 2;
+    } else if self.ExternalRAMSize == 0x02 {
+      self.ExternalRAMSize = 8;
+    } else if self.ExternalRAMSize == 0x03 {
+      self.ExternalRAMSize = 32;
     }
+
+    self.ExternalRAMSize *= 1024;
 
     // Get the memory mapper code (if present)
     // TODO: Find a cleaner way to do this
@@ -157,78 +172,78 @@ implement Cartridge {
       self.MC = MBC1;
     } else if self.Type == 0x02 {  // MBC1+RAM
       self.MC = MBC1;
-      self.ExternalRAM = true;
+      self.HasExternalRAM = true;
     } else if self.Type == 0x03 {  // MBC1+RAM+BATTERY
       self.MC = MBC1;
-      self.ExternalRAM = true;
-      self.Battery = true;
+      self.HasExternalRAM = true;
+      self.HasBattery = true;
     } else if self.Type == 0x05 {  // MBC2
       self.MC = MBC2;
     } else if self.Type == 0x06 {  // MBC2+BATTERY
       self.MC = MBC2;
-      self.Battery = true;
+      self.HasBattery = true;
     } else if self.Type == 0x08 {  // ROM+RAM
-      self.ExternalRAM = true;
+      self.HasExternalRAM = true;
     } else if self.Type == 0x09 {  // ROM+RAM+BATTERY
-      self.ExternalRAM = true;
-      self.Battery = true;
+      self.HasExternalRAM = true;
+      self.HasBattery = true;
     } else if self.Type == 0x0B {  // MMM01
       self.MC = MMMO1;
     } else if self.Type == 0x0C {  // MMM01+RAM
       self.MC = MMMO1;
-      self.ExternalRAM = true;
+      self.HasExternalRAM = true;
     } else if self.Type == 0x0D {  // MMM01+RAM+BATTERY
       self.MC = MMMO1;
-      self.ExternalRAM = true;
-      self.Battery = true;
+      self.HasExternalRAM = true;
+      self.HasBattery = true;
     } else if self.Type == 0x0F {  // MBC3+TIMER+BATTERY
       self.MC = MBC3;
-      self.Timer = true;
-      self.Battery = true;
+      self.HasTimer = true;
+      self.HasBattery = true;
     } else if self.Type == 0x10 {  // MBC3+TIMER+RAM+BATTERY
       self.MC = MBC3;
-      self.Timer = true;
-      self.Battery = true;
-      self.ExternalRAM = true;
+      self.HasTimer = true;
+      self.HasBattery = true;
+      self.HasExternalRAM = true;
     } else if self.Type == 0x11 {  // MBC3
       self.MC = MBC3;
     } else if self.Type == 0x12 {  // MBC3+RAM
       self.MC = MBC3;
-      self.ExternalRAM = true;
+      self.HasExternalRAM = true;
     } else if self.Type == 0x13 {  // MBC3+RAM+BATTERY
       self.MC = MBC3;
-      self.ExternalRAM = true;
-      self.Battery = true;
+      self.HasExternalRAM = true;
+      self.HasBattery = true;
     } else if self.Type == 0x15 {  // MBC4
       self.MC = MBC4;
     } else if self.Type == 0x16 {  // MBC4+RAM
       self.MC = MBC4;
-      self.ExternalRAM = true;
+      self.HasExternalRAM = true;
     } else if self.Type == 0x17 {  // MBC4+RAM+BATTERY
       self.MC = MBC4;
-      self.ExternalRAM = true;
-      self.Battery = true;
+      self.HasExternalRAM = true;
+      self.HasBattery = true;
     } else if self.Type == 0x19 {  // MBC5
       self.MC = MBC5;
     } else if self.Type == 0x1A {  // MBC5+RAM
       self.MC = MBC5;
-      self.ExternalRAM = true;
+      self.HasExternalRAM = true;
     } else if self.Type == 0x1B {  // MBC5+RAM+BATTERY
       self.MC = MBC5;
-      self.ExternalRAM = true;
-      self.Battery = true;
+      self.HasExternalRAM = true;
+      self.HasBattery = true;
     } else if self.Type == 0x1C {  // MBC5+RUMBLE
       self.MC = MBC5;
-      self.Rumble = true;
+      self.HasRumble = true;
     } else if self.Type == 0x1D {  // MBC5+RUMBLE+RAM
       self.MC = MBC5;
-      self.Rumble = true;
-      self.ExternalRAM = true;
+      self.HasRumble = true;
+      self.HasExternalRAM = true;
     } else if self.Type == 0x1E {  // MBC5+RUMBLE+RAM+BATTERY
       self.MC = MBC5;
-      self.Rumble = true;
-      self.ExternalRAM = true;
-      self.Battery = true;
+      self.HasRumble = true;
+      self.HasExternalRAM = true;
+      self.HasBattery = true;
     } else if self.Type == 0xFC {  // POCKET CAMERA
       self.MC = POCKET_CAMERA;
     } else if self.Type == 0xFD {  // BANDAI TAMA5
@@ -237,8 +252,62 @@ implement Cartridge {
       self.MC = HuC1;
     } else if self.Type == 0xFF {  // HuC1+RAM+BATTERY
       self.MC = HuC3;
-      self.ExternalRAM = true;
-      self.Battery = true;
+      self.HasExternalRAM = true;
+      self.HasBattery = true;
     }
+
+    // Allocate External RAM (if present)
+    if self.ExternalRAMSize > 0 {
+      self.ExternalRAM = libc.malloc(self.ExternalRAMSize);
+    }
+
+    // Check for existing .sav file
+    if self.HasBattery {
+      self.ReadExternalSAV();
+    }
+  }
+
+  def ReadExternalSAV(self) {
+    // Make a `.sav` filename
+    // TODO(arrow): Need some string and char utilities brah
+    let filenameSz = libc.strlen(self.Filename) + 2;
+    let savFilename = libc.malloc(filenameSz) as *int8;
+    libc.strcpy(savFilename, self.Filename);
+    *(savFilename + (filenameSz - 4)) = 0x73; // s
+    *(savFilename + (filenameSz - 3)) = 0x61; // a
+    *(savFilename + (filenameSz - 2)) = 0x76; // v
+    *(savFilename + (filenameSz - 1)) = 0;    // \x0
+
+    // Check for an existing `.sav` file
+    let stream = libc.fopen(savFilename, "rb");
+    if stream != std.null<libc.FILE>() {
+      // Read in saved ERAM
+      libc.fread(self.ExternalRAM, 1, self.ExternalRAMSize, stream);
+      libc.fclose(stream);
+    }
+
+    libc.free(savFilename as *uint8);
+  }
+
+  def WriteExternalSAV(self) {
+    // Make a `.sav` filename
+    // TODO(arrow): Need some string and char utilities brah
+    let filenameSz = libc.strlen(self.Filename) + 2;
+    let savFilename = libc.malloc(filenameSz) as *int8;
+    libc.strcpy(savFilename, self.Filename);
+    *(savFilename + (filenameSz - 4)) = 0x73; // s
+    *(savFilename + (filenameSz - 3)) = 0x61; // a
+    *(savFilename + (filenameSz - 2)) = 0x76; // v
+    *(savFilename + (filenameSz - 1)) = 0;    // \x0
+
+    // Check for an existing `.sav` file
+    let stream = libc.fopen(savFilename, "wb");
+    if stream != std.null<libc.FILE>() {
+      // Write out saved ERAM
+      libc.fwrite(self.ExternalRAM, 1, self.ExternalRAMSize, stream);
+      libc.fclose(stream);
+    }
+
+    libc.free(savFilename as *uint8);
   }
 }

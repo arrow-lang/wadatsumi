@@ -18,9 +18,6 @@ struct MBC1 {
 
   // Mode (ROM / RAM)
   Mode: uint8;
-
-  // External RAM
-  ERAM: *uint8;
 }
 
 implement MBC1 {
@@ -33,10 +30,10 @@ implement MBC1 {
       *value = *(self.Cartridge.ROM + (uint64(self.ROMBank) * 0x4000) + (uint64(address) - 0x4000));
     } else if address >= 0xA000 and address <= 0xBFFF {
       // RAM Bank $0 - $3
-      let ramSize = self.Cartridge.RAMSize * 1024;
-      let offset = uint32(address - 0xA000);
+      let ramSize = self.Cartridge.ExternalRAMSize;
+      let offset = uint64(address - 0xA000);
       if self.RAMEnable and offset < ramSize {
-        *value = *((self.ERAM + (uint64(self.RAMBank) * 0x2000)) + offset);
+        *value = *((self.Cartridge.ExternalRAM + (uint64(self.RAMBank) * 0x2000)) + offset);
       } else {
         // External RAM is not enabled
         *value = 0xFF;
@@ -87,10 +84,10 @@ implement MBC1 {
       }
     } else if address >= 0xA000 and address <= 0xBFFF {
       // External RAM
-      let ramSize = self.Cartridge.RAMSize * 1024;
-      let offset = uint32(address - 0xA000);
+      let ramSize = self.Cartridge.ExternalRAMSize;
+      let offset = uint64(address - 0xA000);
       if self.RAMEnable and offset < ramSize {
-        *((self.ERAM + (uint64(self.RAMBank) * 0x2000)) + offset) = value;
+        *((self.Cartridge.ExternalRAM + (uint64(self.RAMBank) * 0x2000)) + offset) = value;
       }
     } else {
       // Unhandled
@@ -110,7 +107,6 @@ def New(cartridge_: *cartridge.Cartridge): mmu.MemoryController {
 
   let self_ = mc.Data as *MBC1;
   self_.Cartridge = cartridge_;
-  self_.ERAM = libc.malloc(uint64(self_.Cartridge.RAMSize * 1024));
   self_.ROMBank = 0x01;
   self_.RAMBank = 0x00;
   self_.RAMEnable = false;
@@ -121,7 +117,6 @@ def New(cartridge_: *cartridge.Cartridge): mmu.MemoryController {
 
 def MCRelease(this: *mmu.MemoryController) {
   let self_ = this.Data as *MBC1;
-  libc.free(self_.ERAM);
   libc.free(this.Data);
 }
 
