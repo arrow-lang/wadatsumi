@@ -184,7 +184,7 @@ implement CPU {
 
       // Print disassembly/trace
       // TODO: Make configurable from command line
-      self.Trace(operation);
+      // self.Trace(operation);
 
       // Execute
       // HACK: Taking the address of a reference (`self`) dies

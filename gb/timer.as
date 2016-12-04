@@ -33,13 +33,11 @@ struct Timer {
 }
 
 implement Timer {
-  def New(): Self {
+  def New(cpu_: *cpu.CPU): Self {
     let t: Timer;
-    return t;
-  }
+    t.CPU = cpu_;
 
-  def Acquire(self, cpu_: *cpu.CPU) {
-    self.CPU = cpu_;
+    return t;
   }
 
   def Reset(self) {

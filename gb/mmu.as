@@ -123,7 +123,7 @@ implement MMU {
     } else if address == 0xFF02 {
       // TODO: Move to a linkCable.as module
       if value & 0x80 != 0 {
-        libc.printf("%c", self.SB);
+        // libc.printf("%c", self.SB);
       }
     } else {
       // libc.printf("warn: write to unhandled memory: %04X\n", address);

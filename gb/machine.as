@@ -4,6 +4,7 @@ import "./cpu";
 import "./gpu";
 import "./mmu";
 import "./cartridge";
+import "./joypad";
 import "./timer";
 
 import "./mbc1";
@@ -12,6 +13,7 @@ struct Machine {
   CPU: cpu.CPU;
   GPU: gpu.GPU;
   MMU: mmu.MMU;
+  Joypad: joypad.Joypad;
   Timer: timer.Timer;
   Cartridge: cartridge.Cartridge;
 }
@@ -29,14 +31,14 @@ implement Machine {
 
     self.MMU = mmu.MMU.New(&self.Cartridge);
 
-    self.Timer = timer.Timer.New();
-
     self.CPU = cpu.CPU.New(this, &self.MMU);
     self.CPU.Acquire();
 
     self.GPU = gpu.GPU.New(&self.CPU);
 
-    self.Timer.Acquire(&self.CPU);
+    self.Timer = timer.Timer.New(&self.CPU);
+
+    self.Joypad = joypad.Joypad.New(&self.CPU);
 
     // BUG(Arrow) -- records need to be assigned before use
     let mc = self.CPU.AsMemoryController(&self.CPU);
@@ -48,7 +50,7 @@ implement Machine {
     mc = self.Timer.AsMemoryController(&self.Timer);
     self.MMU.Controllers.Push(mc);
 
-    mc = self.GPU.AsMemoryController(&self.GPU);
+    mc = self.Joypad.AsMemoryController(&self.Joypad);
     self.MMU.Controllers.Push(mc);
   }
 
@@ -79,10 +81,11 @@ implement Machine {
   }
 
   def Reset(self) {
-    self.MMU.Reset();
     self.Timer.Reset();
     self.CPU.Reset();
     self.GPU.Reset();
+    self.Joypad.Reset();
+    self.MMU.Reset();
   }
 
   def Run(self) {
@@ -92,5 +95,17 @@ implement Machine {
   def Tick(self) {
     self.Timer.Tick();
     self.GPU.Tick();
+  }
+
+  def SetOnRefresh(self, fn: (*gpu.Frame) -> ()) {
+    self.GPU.SetOnRefresh(fn);
+  }
+
+  def OnKeyPress(self, which: uint32) {
+    self.Joypad.OnKeyPress(which);
+  }
+
+  def OnKeyRelease(self, which: uint32) {
+    self.Joypad.OnKeyRelease(which);
   }
 }
