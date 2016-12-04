@@ -519,23 +519,10 @@ implement GPU {
     );
 
     if not self.STATInterruptSignal and statInterruptSignal {
-      self.STATInterruptSignal = true;
-      self.CPU.IF |= 0b10;
+      self.CPU.IF |= 0x2;
     }
 
-    // TODO: STAT Interrupt (from signal)
-    /*
-    The STAT IRQ is triggered by an internal signal
-
-    This signal is set to 1 if:
-     ( (LY = LYC) AND (STAT.ENABLE_LYC_COMPARE = 1) ) OR
-     ( (ScreenMode = 0) AND (STAT.ENABLE_HBL = 1) ) OR
-     ( (ScreenMode = 2) AND (STAT.ENABLE_OAM = 1) ) OR
-     ( (ScreenMode = 1) AND (STAT.ENABLE_VBL || STAT.ENABLE_OAM) ) -> Not only
-
-    The interrupt is fired when the signal TRANSITIONS from 0 TO 1
-    If it STAYS 1 during a screen mode change then no interrupt is fired.
-    */
+    self.STATInterruptSignal = statInterruptSignal;
   }
 
   def Read(self, address: uint16, ptr: *uint8): bool {
