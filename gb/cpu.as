@@ -133,12 +133,6 @@ implement CPU {
         }
       }
 
-      // Debug: Unsupported interrupts
-      if self.IE & 0b10 != 0 or self.IE & 0b10000 != 0 {
-        libc.printf("IE=%02X unsupported\n", self.IE);
-        libc.exit(-1);
-      }
-
       // Decide if we should service interrupts
       let irq = self.IE & self.IF;
       if self.IME == 1 and irq > 0 {

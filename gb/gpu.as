@@ -54,6 +54,10 @@ struct GPU {
   // Sprite Attribute Table (OAM) — 160 Bytes
   OAM: *uint8;
 
+  // STAT Interrupt Signal
+  // Actual interrupt is triggered when this goes from 0 to 1
+  STATInterruptSignal: bool;
+
   // Sprite X Cache
   // When sprites collide .. the sprite that started at the < X value wins
   // This cache is used to build a [x,y] => sprite.x cache used to
@@ -177,6 +181,7 @@ implement GPU {
 
     self.LY = 0;
     self.LYToCompare = 0;
+    self.STATInterruptSignal = false;
 
     self.Mode = 0;
     self.Cycles = 0;
@@ -500,6 +505,22 @@ implement GPU {
         self.LY = 0;
         self.LYToCompare = 0;
       }
+    }
+
+    // STAT Interrupt
+    // The interrupt is fired when the signal TRANSITIONS from 0 TO 1
+    // If it STAYS 1 during a screen mode change then no interrupt is fired.
+    let statInterruptSignal = (
+      (self.LYToCompare == self.LYC and self.LYCCoincidenceInterruptEnable) or
+      (self.Mode == 0 and self.Mode0InterruptEnable) or
+      (self.Mode == 2 and self.Mode2InterruptEnable) or
+      (self.Mode == 1 and (
+        self.Mode1InterruptEnable or self.Mode2InterruptEnable))
+    );
+
+    if not self.STATInterruptSignal and statInterruptSignal {
+      self.STATInterruptSignal = true;
+      self.CPU.IF |= 0b10;
     }
 
     // TODO: STAT Interrupt (from signal)
