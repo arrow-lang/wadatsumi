@@ -6,6 +6,7 @@ import "./mmu";
 import "./cartridge";
 import "./joypad";
 import "./timer";
+import "./linkCable";
 
 import "./mbc1";
 
@@ -16,6 +17,7 @@ struct Machine {
   Joypad: joypad.Joypad;
   Timer: timer.Timer;
   Cartridge: cartridge.Cartridge;
+  LinkCable: linkCable.LinkCable;
 }
 
 implement Machine {
@@ -40,6 +42,8 @@ implement Machine {
 
     self.Joypad = joypad.Joypad.New(&self.CPU);
 
+    self.LinkCable = linkCable.LinkCable.New();
+
     // BUG(Arrow) -- records need to be assigned before use
     let mc = self.CPU.AsMemoryController(&self.CPU);
     self.MMU.Controllers.Push(mc);
@@ -51,6 +55,9 @@ implement Machine {
     self.MMU.Controllers.Push(mc);
 
     mc = self.Joypad.AsMemoryController(&self.Joypad);
+    self.MMU.Controllers.Push(mc);
+
+    mc = self.LinkCable.AsMemoryController(&self.LinkCable);
     self.MMU.Controllers.Push(mc);
   }
 
@@ -85,6 +92,7 @@ implement Machine {
     self.CPU.Reset();
     self.GPU.Reset();
     self.Joypad.Reset();
+    self.LinkCable.Reset();
     self.MMU.Reset();
   }
 
@@ -95,6 +103,7 @@ implement Machine {
   def Tick(self) {
     self.Timer.Tick();
     self.GPU.Tick();
+    // self.LinkCable.Tick();
   }
 
   def SetOnRefresh(self, fn: (*gpu.Frame) -> ()) {

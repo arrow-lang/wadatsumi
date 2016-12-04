@@ -97,8 +97,10 @@ implement CPU {
     self.DE = 0x00D8;
     self.HL = 0x014D;
 
-    self.IE = 0;
-    self.IF = 0;
+    self.IE = 0x01;
+
+    // TODO: mooneye seems to indicate this is $01 at first boot .. odd to me
+    self.IF = 0x01;
   }
 
   /// Tick
@@ -133,7 +135,7 @@ implement CPU {
 
       // Debug: Unsupported interrupts
       if self.IE & 0b10 != 0 or self.IE & 0b10000 != 0 {
-        libc.printf("IE=%02X unsupported\n");
+        libc.printf("IE=%02X unsupported\n", self.IE);
         libc.exit(-1);
       }
 

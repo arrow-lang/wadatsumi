@@ -41,7 +41,7 @@ implement Timer {
   }
 
   def Reset(self) {
-    self.DIV = 0;
+    self.DIV = 0xABCC;
     self.TIMA = 0;
     self.TMA = 0;
     self.TAC = 0;

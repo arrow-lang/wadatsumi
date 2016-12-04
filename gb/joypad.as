@@ -29,8 +29,8 @@ implement Joypad {
   }
 
   def Reset(self) {
-    self.Select_Button = false;
-    self.Select_Direction = false;
+    self.Select_Button = true;
+    self.Select_Direction = true;
 
     self.State_Start = false;
     self.State_A = false;
