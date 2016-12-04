@@ -9,6 +9,7 @@ import "./timer";
 import "./linkCable";
 
 import "./mbc1";
+import "./mbc3";
 
 struct Machine {
   CPU: cpu.CPU;
@@ -76,7 +77,16 @@ implement Machine {
       let mc: mmu.MemoryController;
       if self.Cartridge.MC == cartridge.MBC1 {
         mc = mbc1.New(&self.Cartridge);
+      } else if self.Cartridge.MC == cartridge.MBC3 {
+        mc = mbc3.New(&self.Cartridge);
       } else {
+        libc.printf("error: unsupported cartridge type: %02X\n",
+          self.Cartridge.Type);
+
+        libc.exit(-1);
+      }
+
+      if self.Cartridge.HasTimer {
         libc.printf("error: unsupported cartridge type: %02X\n",
           self.Cartridge.Type);
 
