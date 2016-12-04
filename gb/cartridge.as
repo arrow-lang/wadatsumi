@@ -114,6 +114,25 @@ implement Cartridge {
     }
   }
 
+  def Trace(self) {
+    libc.printf("debug: title             : %s\n", self.Title);
+    libc.printf("debug: cartridge type    : %02X\n", self.Type);
+    libc.printf("debug:   - has battery   : %d\n", self.HasBattery);
+    libc.printf("debug:   - has timer     : %d\n", self.HasTimer);
+    libc.printf("debug:   - has rumble    : %d\n", self.HasRumble);
+    libc.printf("debug:   - has ext. ram  : %d\n", self.HasExternalRAM);
+    libc.printf("debug: rom size (B)      : %d\n", self.ROMSize);
+    libc.printf("debug: ext. ram size (B) : %d\n", self.ExternalRAMSize);
+    libc.printf("debug: sgb support       : %s\n", "yes" if self.SGB == 3 else "no");
+    libc.printf("debug: cgb support       : %s\n", if self.CGB == 0x80 {
+      "yes (compat. with gb)";
+    } else if self.CGB == 0xC0 {
+      "yes (only on cgb)";
+    } else {
+      "no";
+    });
+  }
+
   def Open(self, filename: str) {
     self.Filename = filename;
 
@@ -135,9 +154,6 @@ implement Cartridge {
     // Read the file into ROM
     libc.fread(self.ROM, 1, uint64(size), stream);
     libc.fclose(stream);
-
-    // Get Title
-    self.Title = (self.ROM + 0x0134) as str;
 
     // Get ROM size
     self.ROMSize = uint64(*(self.ROM + 0x0148));
@@ -264,6 +280,26 @@ implement Cartridge {
     // Check for existing .sav file
     if self.HasBattery {
       self.ReadExternalSAV();
+    }
+
+    // CGB Support Flag
+    self.CGB = *(self.ROM + 0x0143);
+
+    // SGB Support Flag
+    self.SGB = *(self.ROM + 0x0146);
+
+    // Get Title
+    self.Title = (self.ROM + 0x0134) as str;
+
+    // Nul out any characters in the title that are "strange"
+    let i = 0;
+    while i < 16 {
+      let c = *(self.Title + i);
+      if c < 0x20 or c >= 0x7E {
+        *(self.Title + i) = 0x0;
+      }
+
+      i += 1;
     }
   }
 

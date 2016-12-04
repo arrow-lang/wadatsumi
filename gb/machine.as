@@ -71,6 +71,7 @@ implement Machine {
 
   def Open(self, filename: str) {
     self.Cartridge.Open(filename);
+    self.Cartridge.Trace();
 
     if self.Cartridge.MC != 0 {
       // Push cartridge memory controller
