@@ -4626,7 +4626,8 @@ def cpu_step(): uint8 {
 
   if opcode != 0xCB {
     // DEBUG: TRACE
-    // printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
+    // printf("{%2X} PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
+    //   opcode,
     //   PC - 1,
     //   AF,
     //   BC,
@@ -4797,6 +4798,10 @@ def gpu_render_scanline() {
       }
 
       let pixel = gpu_get_tile_pixel(tile, uint8(x), uint8(y));
+      if gpu_scx > 0 {
+        printf("[gpu_get_tile_pixel] \t->%d\n", pixel);
+      }
+
       let color = (gpu_palette >> (pixel * 2)) & 0x3;
 
       // Push pixel to framebuffer
@@ -4810,58 +4815,58 @@ def gpu_render_scanline() {
     // FIXME: Should we do anything special here?
   }
 
-  // Window
-  if gpu_window_enable {
-    // FIXME: What is supposed to happen when WX is set to < 7 ?
-    let wx = if gpu_wx < 7 { 0; } else { gpu_wx - 7; };
-    let wy = gpu_wy;
-
-    // Line (to be rendered)
-    let line = int64(gpu_line);
-    if line > int64(wy) {
-
-      // Tile Map (Offset)
-      // The tile map is 32x32 (1024 bytes) and is an index into the tile data
-      // A single tile map cell corresponds to an 8x8 cell in the framebuffer
-      //  map 0 ~ line 0..7
-      //  map 31 ~ line 8..13
-      let map: int64 = if (gpu_window_tm_select) { 0x1C00; } else { 0x1800; };
-      map += ((line - int64(wy)) >> 3) << 5;
-
-      let i: int64 = 0;
-      let x = 0;
-      let offset = 0;
-      let y = line % 8;
-
-      let i = wx;
-      while i < 160 {
-        if (x == 8) {
-          // New Tile
-          x = 0;
-          offset = (offset + 1) % 32;
-        }
-
-        // Tile Map
-        let tile: int16;
-        if gpu_td_select {
-          tile = int16(*(vram + map + offset));
-        } else {
-          tile = int16(int8(*(vram + map + offset))) + 256;
-        }
-
-        let pixel = gpu_get_tile_pixel(tile, uint8(x), uint8(y));
-        let color = (gpu_palette >> (pixel * 2)) & 0x3;
-
-        *(gpu_framebuffer + (int64(gpu_line) * 160) + i) = color;
-
-        x += 1;
-        i += 1;
-      }
-    }
-  } else {
-    // Window not enabled
-    // FIXME: Should we do anything special here?
-  }
+  // // Window
+  // if gpu_window_enable {
+  //   // FIXME: What is supposed to happen when WX is set to < 7 ?
+  //   let wx = if gpu_wx < 7 { 0; } else { gpu_wx - 7; };
+  //   let wy = gpu_wy;
+  //
+  //   // Line (to be rendered)
+  //   let line = int64(gpu_line);
+  //   if line > int64(wy) {
+  //
+  //     // Tile Map (Offset)
+  //     // The tile map is 32x32 (1024 bytes) and is an index into the tile data
+  //     // A single tile map cell corresponds to an 8x8 cell in the framebuffer
+  //     //  map 0 ~ line 0..7
+  //     //  map 31 ~ line 8..13
+  //     let map: int64 = if (gpu_window_tm_select) { 0x1C00; } else { 0x1800; };
+  //     map += ((line - int64(wy)) >> 3) << 5;
+  //
+  //     let i: int64 = 0;
+  //     let x = 0;
+  //     let offset = 0;
+  //     let y = line % 8;
+  //
+  //     let i = wx;
+  //     while i < 160 {
+  //       if (x == 8) {
+  //         // New Tile
+  //         x = 0;
+  //         offset = (offset + 1) % 32;
+  //       }
+  //
+  //       // Tile Map
+  //       let tile: int16;
+  //       if gpu_td_select {
+  //         tile = int16(*(vram + map + offset));
+  //       } else {
+  //         tile = int16(int8(*(vram + map + offset))) + 256;
+  //       }
+  //
+  //       let pixel = gpu_get_tile_pixel(tile, uint8(x), uint8(y));
+  //       let color = (gpu_palette >> (pixel * 2)) & 0x3;
+  //
+  //       *(gpu_framebuffer + (int64(gpu_line) * 160) + i) = color;
+  //
+  //       x += 1;
+  //       i += 1;
+  //     }
+  //   }
+  // } else {
+  //   // Window not enabled
+  //   // FIXME: Should we do anything special here?
+  // }
 
   // Sprites
   if gpu_sprite_enable {
@@ -4977,6 +4982,10 @@ def gpu_render_scanline() {
 
 def gpu_get_tile_pixel(tile: int16, x: uint8, y: uint8): uint8 {
   let offset: int16 = tile * 16 + int16(y) * 2;
+
+  if gpu_scx > 0 {
+    printf("[gpu_get_tile_pixel] tile=%d x=%d y=%d\n", tile, x, y);
+  }
 
   return (
     ((*(vram + offset + 1) >> (7 - x) << 1) & 2) |
@@ -5130,8 +5139,7 @@ def gpu_read(address: uint16): uint8 {
   } else if address == 0xFF44 {
     // LY – LCDC Y-Coordinate (R)
     // FIXME
-    return 0xFF;
-    // return gpu_line;
+    return gpu_line;
   } else if address == 0xFF45 {
     // LYC – LY Compare (R/W)
     return gpu_line_compare;

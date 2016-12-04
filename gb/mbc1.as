@@ -31,7 +31,7 @@ implement MBC1 {
     } else if address <= 0x7FFF {
       // ROM Bank $1 - $7F
       *value = *(self.Cartridge.ROM + (uint64(self.ROMBank) * 0x4000) + (uint64(address) - 0x4000));
-    } else if address >= 0xA000 and address <= 0x7FFF {
+    } else if address >= 0xA000 and address <= 0xBFFF {
       // RAM Bank $0 - $3
       let ramSize = self.Cartridge.RAMSize * 1024;
       let offset = uint32(address - 0xA000);

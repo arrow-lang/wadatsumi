@@ -25,6 +25,20 @@ struct Frame {
   Height: uint32;
 }
 
+struct Sprite {
+  // Y Position
+  Y: uint8;
+
+  // X Position
+  X: uint8;
+
+  // Tile/Pattern Number
+  Tile: uint8;
+
+  // Attributes/Flags
+  Flags: uint8;
+}
+
 struct GPU {
   CPU: *cpu.CPU;
 
@@ -39,6 +53,17 @@ struct GPU {
 
   // Sprite Attribute Table (OAM) — 160 Bytes
   OAM: *uint8;
+
+  // Sprite X Cache
+  // When sprites collide .. the sprite that started at the < X value wins
+  // This cache is used to build a [x,y] => sprite.x cache used to
+  // determine collision priority
+  SpriteXCache: *uint8;
+
+  // Pixel Cache
+  // Array of 2-bit values where b0 is 1 if background/window was rendered
+  // and b1 is 1 if a sprite was rendered
+  PixelCache: *uint8;
 
   // Cycle counter for Mode
   Cycles: uint16;
@@ -129,6 +154,8 @@ implement GPU {
     g.VRAM = libc.malloc(0x2000);
     g.OAM = libc.malloc(160);
     g.FrameBuffer = libc.malloc(DISP_HEIGHT * DISP_WIDTH * 4) as *uint32;
+    g.SpriteXCache = libc.malloc(DISP_HEIGHT * DISP_WIDTH);
+    g.PixelCache = libc.malloc(DISP_HEIGHT * DISP_WIDTH);
 
     return g;
   }
@@ -137,12 +164,16 @@ implement GPU {
     libc.free(self.VRAM);
     libc.free(self.OAM);
     libc.free(self.FrameBuffer as *uint8);
+    libc.free(self.SpriteXCache);
+    libc.free(self.PixelCache);
   }
 
   def Reset(self) {
     libc.memset(self.VRAM, 0, 0x2000);
     libc.memset(self.OAM, 0, 160);
     libc.memset(self.FrameBuffer as *uint8, 0, (DISP_HEIGHT * DISP_WIDTH * 4));
+    libc.memset(self.SpriteXCache, 0, (DISP_HEIGHT * DISP_WIDTH));
+    libc.memset(self.PixelCache, 0, (DISP_HEIGHT * DISP_WIDTH));
 
     self.LY = 0;
     self.LYToCompare = 0;
@@ -156,19 +187,24 @@ implement GPU {
   }
 
   def Render(self) {
-    // TODO: Set whole line to $0 if background AND window are disabled (?)
-
     if self.BackgroundEnable {
       self.RenderBackground();
     } else {
       // Background not enabled
-      // TODO: Should we do anything special here?
+      // TODO: Clear background and pixel cache
     }
 
     if self.WindowEnable {
       self.RenderWindow();
     } else {
       // Window not enabled
+      // TODO: Should we do anything special here?
+    }
+
+    if self.SpriteEnable {
+      self.RenderSprites();
+    } else {
+      // Sprites not enabled
       // TODO: Should we do anything special here?
     }
   }
@@ -189,11 +225,16 @@ implement GPU {
 
     while i < DISP_WIDTH {
       // Get pixel data of tile (and apply palette)
-      let tile = self.getTile(map, x, self.TileDataSelect);
+      let tile = self.getTile(map, (
+        ((self.SCX / 8) + (x / 8)) % 32
+      ), self.TileDataSelect);
       let pixel = self.getPixelForTile(tile, x % 8, y);
-      pixel = (self.BGP >> (pixel * 2)) & 0x3;
+
+      // Set pixel cache
+      *(self.PixelCache + offset + i) = 1 if pixel > 0 else 0;
 
       // Push pixel to framebuffer
+      pixel = (self.BGP >> (pixel << 1)) & 0x3;
       *(self.FrameBuffer + offset + i) = self.getColorForPixel(pixel);
 
       x += 1;
@@ -204,7 +245,7 @@ implement GPU {
   def RenderWindow(self) {
     if self.LY > self.WY {
       // Tile Map (Offset)
-      let map: uint64 = 0x1C00 if self.BackgroundTimeMapSelect else 0x1800;
+      let map: uint64 = 0x1C00 if self.WindowTileMapSelect else 0x1800;
       map += uint64((self.LY - self.WY) >> 3) << 5;
 
       let i = uint64(self.WX);
@@ -214,11 +255,14 @@ implement GPU {
 
       while i < DISP_WIDTH {
         // Get pixel data of tile (and apply palette)
-        let tile = self.getTile(map, x, self.TileDataSelect);
+        let tile = self.getTile(map, x / 8, self.TileDataSelect);
         let pixel = self.getPixelForTile(tile, x % 8, y);
-        pixel = (self.BGP >> (pixel * 2)) & 0x3;
+
+        // Set pixel cache
+        *(self.PixelCache + offset + i) |= 1 if pixel > 0 else 0;
 
         // Push pixel to framebuffer
+        pixel = (self.BGP >> (pixel << 1)) & 0x3;
         *(self.FrameBuffer + offset + i) = self.getColorForPixel(pixel);
 
         x += 1;
@@ -227,12 +271,118 @@ implement GPU {
     }
   }
 
+  def RenderSprites(self) {
+    // Sprite attributes reside in the Sprite Attribute Table (
+    // OAM - Object Attribute Memory) at $FE00-FE9F.
+    // Each of the 40 entries consists of four bytes with the
+    // following meanings:
+    //  Byte0 - Y Position
+    //  Byte1 - X Position
+    //  Byte2 - Tile/Pattern Number
+    //  Byte3 - Attributes/Flags:
+    //    Bit7   OBJ-to-BG Priority (0=OBJ Above BG, 1=OBJ Behind BG color 1-3)
+    //           (Used for both BG and Window. BG color 0 is always behind OBJ)
+    //    Bit6   Y flip          (0=Normal, 1=Vertically mirrored)
+    //    Bit5   X flip          (0=Normal, 1=Horizontally mirrored)
+    //    Bit4   Palette number  **Non CGB Mode Only** (0=OBP0, 1=OBP1)
+    //    Bit3   Tile VRAM-Bank  **CGB Mode Only**     (0=Bank 0, 1=Bank 1)
+    //    Bit2-0 Palette number  **CGB Mode Only**     (OBP0-7)
+
+    let spriteHeight = 16 if self.SpriteSize else 8;
+    let i: int64 = 39;
+    let n = 0;
+    let offset = uint64(self.LY) * DISP_WIDTH;
+
+    while i >= 0 {
+      let s = *((self.OAM as *Sprite) + i);
+      let sy = int16(s.Y) - 16;
+      let sx = int16(s.X) - 8;
+
+      // Remember, we are rendering on a line-by-line basis
+      // Does this sprite intersect our current scanline?
+
+      if (sy <= int16(self.LY)) and (sy + spriteHeight) > int16(self.LY) {
+
+        // A maximum 10 sprites per line are allowed
+        n += 1;
+        if n > 10 { break; }
+
+        // Calculate y-index into the tile (applying y-mirroring)
+        let tileY = uint8(int16(self.LY) - sy);
+        if bits.Test(s.Flags, 6) { tileY = uint8(spriteHeight) - 1 - tileY; }
+
+        // Sprites can be 8x16 but Tiles are only 8x8
+        if spriteHeight == 16 {
+          // Adjust the tile index to point to the top or bottom tile
+          if tileY < 8 {
+            // Top
+            s.Tile &= 0xFE;
+          } else {
+            // Bottom
+            tileY -= 8;
+            s.Tile |= 0x01;
+          }
+        }
+
+        // Iterate through the columns of the sprite pixels ..
+        let x = 0;
+        while x < 8 {
+          // Is this column of the sprite visible on the screen ?
+          if (sx + x >= 0) and (sx + x < int16(DISP_WIDTH)) {
+            let cacheOffset = (uint64(self.LY) * DISP_WIDTH) + uint64(sx + x);
+            let xCache = *(self.SpriteXCache + cacheOffset);
+            let pixelCache = *(self.PixelCache + cacheOffset);
+
+            // Another sprite was drawn and the drawn sprite is < on the
+            // X-axis
+            if bits.Test(pixelCache, 1) and (xCache < uint8(sx + 8)) {
+              x += 1;
+              continue;
+            }
+
+            // Background/Window pixel drawn and sprite flag b7 indicates
+            // that the sprite is behind the background/window
+            if bits.Test(pixelCache, 0) and bits.Test(s.Flags, 7) {
+              x += 1;
+              continue;
+            }
+
+            // Calculate the x-index into the tile (applying x-mirroring)
+            let tileX = uint8((7 - x) if bits.Test(s.Flags, 5) else x);
+
+            // Get pixel data of tile (and apply palette)
+            let pixel = self.getPixelForTile(uint16(s.Tile), tileX, tileY);
+            if pixel == 0 {
+              x += 1;
+              continue;
+            }
+
+            // Update priority cache
+            *(self.SpriteXCache + cacheOffset) = uint8(sx + 8);
+            *(self.PixelCache + cacheOffset) |= 0x2;
+
+            let palette = self.OBP1 if bits.Test(s.Flags, 4) else self.OBP0;
+            pixel = (palette >> (pixel << 1)) & 0x3;
+
+            // Push pixel to framebuffer
+            let offs = offset + uint64(sx + x);
+            *(self.FrameBuffer + offs) = self.getColorForPixel(pixel);
+          }
+
+          x += 1;
+        }
+      }
+
+      i -= 1;
+    }
+  }
+
   // Get tile index from map
-  def getTile(self, map: uint64, x: uint8, tileDataSelect: bool): uint16 {
-    return if self.TileDataSelect {
-      uint16(*(self.VRAM + map + (x / 8)));
+  def getTile(self, map: uint64, offset: uint8, tileDataSelect: bool): uint16 {
+    return if tileDataSelect {
+      uint16(*(self.VRAM + map + offset));
     } else {
-      uint16(int8(*(self.VRAM + map + (x / 8)))) + 256;
+      uint16(int8(*(self.VRAM + map + offset))) + 256;
     };
   }
 
@@ -293,11 +443,11 @@ implement GPU {
   }
 
   def Tick(self) {
-    // Increment mode cycle counter
-    self.Cycles += 1;
-
     // Most activity stops when LCD is disabled
     if not self.LCDEnable { return; }
+
+    // Increment mode cycle counter
+    self.Cycles += 1;
 
     // LYToCompare is set to LY if it was set to a pending status of 0
     // LYToCompare is on a 1-cycle delay from LY
@@ -311,6 +461,8 @@ implement GPU {
         self.Mode = 2;
       } else {
         // Enter V-Blank
+        // This should occur at 70224 clocks
+
         self.Mode = 1;
         self.CPU.IF |= 0x01;
 
@@ -326,15 +478,15 @@ implement GPU {
 
       // Render: Scanline
       self.Render();
-    } else if self.Mode == 0 and self.Cycles >= (452 / 4) {
-      // Each scanline lasts for exactly 452 clocks
+    } else if self.Mode == 0 and self.Cycles >= (456 / 4) {
+      // Each scanline lasts for exactly 456 clocks
       self.LY += 1;
       self.LYToCompare = 0;
       self.Mode = 0;
-      self.Cycles -= (452 / 4);
+      self.Cycles -= (456 / 4);
     } else if self.Mode == 1 {
-      if self.Cycles >= (452 / 4) {
-        // Each scanline in VBLANK lasts for the same 452 clocks
+      if self.Cycles >= (456 / 4) {
+        // Each scanline in VBLANK lasts for the same 456 clocks
         // Mode 1 is persisted until line-153
         if self.LY == 0 {
           self.Mode = 0;
@@ -342,7 +494,7 @@ implement GPU {
           self.LY += 1;
           self.LYToCompare = 0;
         }
-        self.Cycles -= (452 / 4);
+        self.Cycles -= (456 / 4);
       } else if self.LY >= 153 and self.Cycles >= 1 {
         // Scanline counter is reset to 0 on the first cycle of #153
         self.LY = 0;
@@ -434,6 +586,13 @@ implement GPU {
       self.SpriteSize = bits.Test(value, 2);
       self.SpriteEnable = bits.Test(value, 1);
       self.BackgroundEnable = bits.Test(value, 0);
+
+      // Reset mode/scanline counters on LCD disable
+      if not self.LCDEnable {
+        self.LY = 0;
+        self.Mode = 0;
+        self.Cycles = 0;
+      }
     } else if address == 0xFF41 {
       self.LYCCoincidenceInterruptEnable = bits.Test(value, 6);
       self.Mode2InterruptEnable = bits.Test(value, 5);
@@ -441,7 +600,7 @@ implement GPU {
       self.Mode0InterruptEnable = bits.Test(value, 3);
     } else if address == 0xFF42 {
       self.SCY = value;
-    } else if address == 0xFF42 {
+    } else if address == 0xFF43 {
       self.SCX = value;
     } else if address == 0xFF45 {
       self.LYC = value;

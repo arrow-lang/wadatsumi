@@ -131,6 +131,12 @@ implement CPU {
         }
       }
 
+      // Debug: Unsupported interrupts
+      if self.IE & 0b10 != 0 or self.IE & 0b10000 != 0 {
+        libc.printf("IE=%02X unsupported\n");
+        libc.exit(-1);
+      }
+
       // Decide if we should service interrupts
       let irq = self.IE & self.IF;
       if self.IME == 1 and irq > 0 {
@@ -213,6 +219,7 @@ implement CPU {
       libc.sprintf(buffer, operation.disassembly);
     }
 
+    // libc.printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
     libc.printf("trace: %-25s PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
       buffer,
       self.PC - 1,
@@ -241,6 +248,21 @@ implement CPU {
       self.IE = value & ~0xE0;
     } else if address == 0xFF0F {
       self.IF = value & ~0xE0;
+    } else if address == 0xFF46 {
+      // DMA - DMA Transfer and Start Address (W)
+
+      // FIXME: This is supposed to take 160 × 4 + 4 cycles to complete
+      //        4 cycles to begin with 4 cycles per write/read (transfer)
+
+      let src = uint16(value) << 8;
+      if src >= 0x8000 and src < 0xE000 {
+        let i: uint16 = 0;
+        while i < 0xA0 {
+          self.MMU.Write(0xFE00 + i, self.MMU.Read(src + i));
+
+          i += 1;
+        }
+      }
     } else {
       return false;
     }
