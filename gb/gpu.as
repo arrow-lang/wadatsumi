@@ -540,11 +540,19 @@ implement GPU {
 
   def Read(self, address: uint16, ptr: *uint8): bool {
     *ptr = if address >= 0x8000 and address <= 0x9FFF {
-      // TODO: VRAM cannot be read during mode-3
-      *(self.VRAM + (address & 0x1FFF));
+      // VRAM cannot be read during mode-3
+      if self.Mode == 3 {
+        0xFF;
+      } else {
+        *(self.VRAM + (address & 0x1FFF));
+      }
     } else if address >= 0xFE00 and address <= 0xFE9F {
-      // TODO: OAM cannot be read during mode-2 or mode-3
-      *(self.OAM + (address - 0xFE00));
+      // OAM cannot be read during mode-2 or mode-3
+      if self.Mode == 2 or self.Mode == 3 {
+        0xFF;
+      } else {
+        *(self.OAM + (address - 0xFE00));
+      }
     } else if address == 0xFF40 {
       (
         bits.Bit(self.LCDEnable, 7) |
@@ -593,11 +601,15 @@ implement GPU {
 
   def Write(self, address: uint16, value: uint8): bool {
     if address >= 0x8000 and address <= 0x9FFF {
-      // TODO: VRAM cannot be written during mode-3
-      *(self.VRAM + (address & 0x1FFF)) = value;
+      // VRAM cannot be written during mode-3
+      if self.Mode != 3 {
+        *(self.VRAM + (address & 0x1FFF)) = value;
+      }
     } else if address >= 0xFE00 and address <= 0xFE9F {
-      // TODO: OAM cannot be written during mode-2 or mode-3
-      *(self.OAM + (address - 0xFE00)) = value;
+      // OAM cannot be written during mode-2 or mode-3
+      if self.Mode < 2 {
+        *(self.OAM + (address - 0xFE00)) = value;
+      }
     } else if address == 0xFF40 {
       self.LCDEnable = bits.Test(value, 7);
       self.WindowTileMapSelect = bits.Test(value, 6);
