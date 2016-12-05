@@ -273,29 +273,7 @@ implement APU {
   }
 
   def Tick(self) {
-  }
-
-  def GenerateChannel2(self, stream: *int16, length: uint32) {
-    let frequency = uint16(self.NR33) | uint16((self.NR34 & 0b111) << 8);
-    if frequency == 0 { return; }
-
-    libc.printf("NR21 -> %02X\n", self.NR21);
-
-    let volume = int16(self.NR22 >> 4);
-
-    let samples = 48000 / frequency;
-    let i = 0;
-    let n = 0;
-    let signed = false;
-    while i < length {
-      // Reset distance
-      if n >= samples { n = 0; signed = not signed; }
-
-      *(stream + i) = (-1 if signed else +1) * volume * 100;
-
-      i += 1;
-      n += 1;
-    }
+    // ...
   }
 
   def AsMemoryController(self, this: *APU): mmu.MemoryController {
