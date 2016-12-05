@@ -294,11 +294,11 @@ implement GPU {
     //    Bit2-0 Palette number  **CGB Mode Only**     (OBP0-7)
 
     let spriteHeight = 16 if self.SpriteSize else 8;
-    let i: int64 = 39;
+    let i = 0;
     let n = 0;
     let offset = uint64(self.LY) * DISP_WIDTH;
 
-    while i >= 0 {
+    while i < 40 {
       let s = *((self.OAM as *Sprite) + i);
       let sy = int16(s.Y) - 16;
       let sx = int16(s.X) - 8;
@@ -309,8 +309,8 @@ implement GPU {
       if (sy <= int16(self.LY)) and (sy + spriteHeight) > int16(self.LY) {
 
         // A maximum 10 sprites per line are allowed
-        n += 1;
-        if n > 10 { break; }
+        // n += 1;
+        if n >= 10 { break; }
 
         // Calculate y-index into the tile (applying y-mirroring)
         let tileY = uint8(int16(self.LY) - sy);
@@ -331,6 +331,7 @@ implement GPU {
 
         // Iterate through the columns of the sprite pixels ..
         let x = 0;
+        let rendered = false;
         while x < 8 {
           // Is this column of the sprite visible on the screen ?
           if (sx + x >= 0) and (sx + x < int16(DISP_WIDTH)) {
@@ -340,7 +341,7 @@ implement GPU {
 
             // Another sprite was drawn and the drawn sprite is < on the
             // X-axis
-            if bits.Test(pixelCache, 1) and (xCache < uint8(sx + 8)) {
+            if bits.Test(pixelCache, 1) and (xCache <= uint8(sx + 8)) {
               x += 1;
               continue;
             }
@@ -357,14 +358,19 @@ implement GPU {
 
             // Get pixel data of tile (and apply palette)
             let pixel = self.getPixelForTile(uint16(s.Tile), tileX, tileY);
+
+            // Update priority cache
+            *(self.PixelCache + cacheOffset) |= 0x2 if pixel > 0 else 0;
+            *(self.SpriteXCache + cacheOffset) = uint8(sx + 8);
+
+            // Mark this sprite as rendered
+            rendered = true;
+
+            // Skip if transparent
             if pixel == 0 {
               x += 1;
               continue;
             }
-
-            // Update priority cache
-            *(self.SpriteXCache + cacheOffset) = uint8(sx + 8);
-            *(self.PixelCache + cacheOffset) |= 0x2;
 
             let palette = self.OBP1 if bits.Test(s.Flags, 4) else self.OBP0;
             pixel = (palette >> (pixel << 1)) & 0x3;
@@ -372,13 +378,20 @@ implement GPU {
             // Push pixel to framebuffer
             let offs = offset + uint64(sx + x);
             *(self.FrameBuffer + offs) = self.getColorForPixel(pixel);
+          } else {
+            // Off screen (with X) still counts as rendered
+            rendered = true;
           }
 
           x += 1;
         }
+
+        if rendered {
+          n += 1;
+        }
       }
 
-      i -= 1;
+      i += 1;
     }
   }
 
