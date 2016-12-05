@@ -253,7 +253,7 @@ implement GPU {
       let map: uint64 = 0x1C00 if self.WindowTileMapSelect else 0x1800;
       map += uint64((self.LY - self.WY) >> 3) << 5;
 
-      let i = uint64(self.WX);
+      let i = uint64((self.WX - 7) if self.WX > 7 else 0);
       let x: uint8 = 0;
       let y = uint8((self.LY - self.WY) % 8);
       let offset = uint64(self.LY) * DISP_WIDTH;
@@ -591,7 +591,7 @@ implement GPU {
     } else if address == 0xFF4A {
       self.WY;
     } else if address == 0xFF4B {
-      self.WX + 7;
+      self.WX;
     } else {
       return false;
     };
@@ -646,7 +646,7 @@ implement GPU {
     } else if address == 0xFF4A {
       self.WY = value;
     } else if address == 0xFF4B {
-      self.WX = (value - 7) if value > 7 else 0;
+      self.WX = value;
     } else {
       return false;
     }
