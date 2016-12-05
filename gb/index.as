@@ -1,3 +1,4 @@
+import "std";
 import "libc";
 
 import "./machine";
@@ -8,10 +9,26 @@ import "./gpu";
 // TODO(arrow): Is this the best way to include C stuff?
 #include "SDL2/SDL.h"
 
+// BUG(arrow): This is not included right for some reason
+struct SDL_AudioSpec {
+  freq: libc.c_int;
+  format: SDL_AudioFormat;
+  channels: uint8;
+  silence: uint8;
+  samples: uint16;
+  padding: uint16;
+  size: uint32;
+  callback: (*uint8, *uint8, libc.c_int) -> ();
+  userdata: *uint8;
+}
+
+extern "C" def SDL_OpenAudio(desired: *SDL_AudioSpec, obtained: *SDL_AudioSpec): libc.c_int;
+
 // BUG(arrow): CInclude does not get macros
 let SDL_INIT_VIDEO: uint32 = 0x00000020;
+let SDL_INIT_AUDIO: uint32 = 0x00000010;
 
-let SCALE: uint64 = 4;
+let SCALE: uint64 = 5;
 let WIDTH: uint64 = 160;
 let HEIGHT: uint64 = 144;
 
@@ -21,12 +38,23 @@ let _tex: *SDL_Texture;
 let _evt: *uint8;
 let _running = true;
 
-def acquire() {
+def audio_callback(userdata: *uint8, out: *uint8, count: libc.c_int) {
+  let m = userdata as *machine.Machine;
+
+  // Clear -> Silence
+  libc.memset(out, 0, uint64(count));
+
+  // Generate samples from APU
+  let stream = out as *int16;
+  m.APU.GenerateChannel2(stream, uint32(count / 2));
+}
+
+def acquire(userdata: *uint8) {
   // BUG: CInclude does not support unions (yet)
   _evt = libc.malloc(1000);
 
   // Initialize SDL
-  SDL_Init(SDL_INIT_VIDEO);
+  SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
 
   // Create Window
   // TODO: Allow arbitrary scaling
@@ -53,10 +81,27 @@ def acquire() {
   SDL_SetRenderDrawColor(_renderer, 255, 255, 255, 255);
   SDL_RenderClear(_renderer);
   SDL_RenderPresent(_renderer);
+
+  // Open Audio
+  let asp: SDL_AudioSpec;
+  asp.freq = 48000;
+  asp.format = 0x8010;  // Signed 16-bit samples (LE)
+  asp.channels = 1;
+  asp.silence = 0;
+  asp.samples = 4096;
+  asp.size = 0;
+  asp.callback = audio_callback;
+  asp.userdata = userdata;
+
+  SDL_OpenAudio(&asp, 0 as *SDL_AudioSpec);
+  SDL_PauseAudio(0);
 }
 
 def release() {
   libc.free(_evt);
+
+  SDL_PauseAudio(1);
+  SDL_CloseAudio();
 
   SDL_DestroyRenderer(_renderer);
   SDL_DestroyWindow(_window);
@@ -76,10 +121,10 @@ def render(frame: *gpu.Frame) {
 }
 
 def main(argc: int32, argv: *str) {
-  acquire();
-
   // let s = shell.Shell.New();
   let m = machine.Machine.New();
+
+  acquire(&m as *uint8);
 
   // HACK: Taking the address of a reference (`self`) dies
   m.Acquire(&m);

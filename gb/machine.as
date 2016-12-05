@@ -2,6 +2,7 @@ import "libc";
 
 import "./cpu";
 import "./gpu";
+import "./apu";
 import "./mmu";
 import "./cartridge";
 import "./joypad";
@@ -16,6 +17,7 @@ import "./mbc5";
 struct Machine {
   CPU: cpu.CPU;
   GPU: gpu.GPU;
+  APU: apu.APU;
   MMU: mmu.MMU;
   Joypad: joypad.Joypad;
   Timer: timer.Timer;
@@ -41,6 +43,8 @@ implement Machine {
 
     self.GPU = gpu.GPU.New(&self.CPU);
 
+    self.APU = apu.APU.New();
+
     self.Timer = timer.Timer.New(&self.CPU);
 
     self.Joypad = joypad.Joypad.New(&self.CPU);
@@ -52,6 +56,9 @@ implement Machine {
     self.MMU.Controllers.Push(mc);
 
     mc = self.GPU.AsMemoryController(&self.GPU);
+    self.MMU.Controllers.Push(mc);
+
+    mc = self.APU.AsMemoryController(&self.APU);
     self.MMU.Controllers.Push(mc);
 
     mc = self.Timer.AsMemoryController(&self.Timer);
@@ -67,6 +74,7 @@ implement Machine {
   def Release(self) {
     self.CPU.Release();
     self.GPU.Release();
+    self.APU.Release();
     self.MMU.Release();
     self.Cartridge.Release();
   }
