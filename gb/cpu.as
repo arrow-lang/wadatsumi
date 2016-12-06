@@ -215,7 +215,6 @@ implement CPU {
       libc.sprintf(buffer, operation.disassembly);
     }
 
-    // libc.printf("PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
     libc.printf("trace: %-25s PC: $%04X AF: $%04X BC: $%04X DE: $%04X HL: $%04X SP: $%04X\n",
       buffer,
       self.PC - 1,

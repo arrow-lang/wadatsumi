@@ -118,6 +118,7 @@ implement Machine {
     self.GPU.Reset();
     self.Joypad.Reset();
     self.LinkCable.Reset();
+    self.APU.Reset();
     self.MMU.Reset();
   }
 

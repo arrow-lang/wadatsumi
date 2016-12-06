@@ -139,7 +139,7 @@ implement ChannelSquare {
     // Calculate new frequency using sweep
     let r: uint16 = 0;
     r = self.SweepFrequency >> self.SweepShift;
-    r = self.SweepFrequency + (r * -1 if self.SweepDirection else +1);
+    r = self.SweepFrequency + (r * (-1 if self.SweepDirection else +1));
 
     // Disable channel if overflow
     if r > 2047 {
@@ -172,8 +172,6 @@ implement ChannelSquare {
 
           self.CalculateSweep();
         }
-
-        self.CalculateSweep();
 
         self.SweepTimer = self.SweepPeriod;
       }
@@ -295,8 +293,10 @@ implement ChannelSquare {
       self.Length = 64 - (value & 0b1_1111);
     } else if r == 2 {
       self.VolumeInitial = (value & 0b1111_0000) >> 4;
+      self.Volume = self.VolumeInitial;
       self.VolumeEnvelopeDirection = bits.Test(value, 3);
       self.VolumeEnvelopePeriod = (value & 0b111);
+      self.VolumeEnvelopeTimer = self.VolumeEnvelopePeriod;
     } else if r == 3 {
       self.Frequency = (self.Frequency & ~0xFF) | uint16(value);
     } else if r == 4 {

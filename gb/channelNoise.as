@@ -1,6 +1,14 @@
+import "libc";
+import "./bits";
 
 // Channel 4 — Noise
 struct ChannelNoise {
+  // On/Off
+  Enable: bool;
+
+  // Linear Feedback Shift Register — 15-bit
+  LFSR: uint16;
+
   // Volume * — Same as channel 1/2
   Volume: uint8;
   VolumeInitial: uint8;
@@ -27,58 +35,180 @@ struct ChannelNoise {
   DivisorIndex: uint8;
 }
 
+implement ChannelNoise {
+  def New(): Self {
+    let ch: ChannelNoise;
 
-  // // Channel 3 - Wave Output
-  // // -----------------------
-  //
-  // // FF1A - NR30 - Channel 3 Sound on/off (R/W)
-  // //    Bit 7 - Sound Channel 3 Off  (0=Stop, 1=Playback)  (Read/Write)
-  // NR30: uint8;
-  //
-  // // FF1B - NR31 - Channel 3 Sound Length (R/W)
-  // //    Bit 7-0 - Sound length (t1: 0 - 255)
-  // NR31: uint8;
-  //
-  // // FF1C - NR32 - Channel 3 Select output level (R/W)
-  // //    Bit 6-5 - Select output level (Read/Write)
-  // NR32: uint8;
-  //
-  // // FF1D - NR33 - Channel 3 Frequency's lower data (W)
-  // NR33: uint8;
-  //
-  // // FF1E - NR34 - Channel 3 Frequency's higher data (R/W)
-  // //    Bit 7   - Initial (1=Restart Sound)     (Write Only)
-  // //    Bit 6   - Counter/consecutive selection (Read/Write)
-  // //              (1=Stop output when length in NR31 expires)
-  // //    Bit 2-0 - Frequency's higher 3 bits (x) (Write Only)
-  // NR34: uint8;
-  //
-  // // FF30-FF3F - Wave Pattern RAM (16 bytes)
-  // // Contents - Waveform storage for arbitrary sound data
-  // C3_WavePatternRAM: *uint8;
-  //
-  // // Channel 4 - Noise
-  // // -----------------
-  //
-  // // FF20 - NR41 - Channel 4 Sound Length (R/W)
-  // //    Bit 5-0 - Sound length data (t1: 0-63)
-  // NR41: uint8;
-  //
-  // // FF21 - NR42 - Channel 4 Volume Envelope (R/W)
-  // //    Bit 7-4 - Initial Volume of envelope (0-0Fh) (0=No Sound)
-  // //    Bit 3   - Envelope Direction (0=Decrease, 1=Increase)
-  // //    Bit 2-0 - Number of envelope sweep (n: 0-7)
-  // //              (If zero, stop envelope operation.)
-  // NR42: uint8;
-  //
-  // // FF22 - NR43 - Channel 4 Polynomial Counter (R/W)
-  // //    Bit 7-4 - Shift Clock Frequency (s)
-  // //    Bit 3   - Counter Step/Width (0=15 bits, 1=7 bits)
-  // //    Bit 2-0 - Dividing Ratio of Frequencies (r)
-  // NR43: uint8;
-  //
-  // // FF23 - NR44 - Channel 4 Counter/consecutive; Inital (R/W)
-  // //    Bit 7   - Initial (1=Restart Sound)     (Write Only)
-  // //    Bit 6   - Counter/consecutive selection (Read/Write)
-  // //              (1=Stop output when length in NR41 expires)
-  // NR44: uint8;
+    return ch;
+  }
+
+  def Reset(self) {
+    self.Enable = false;
+    self.LFSR = 0;
+    self.Timer = 0;
+    self.Frequency = 0;
+    self.Volume = 0;
+    self.VolumeInitial = 0;
+    self.VolumeEnvelopeTimer = 0;
+    self.VolumeEnvelopePeriod = 0;
+    self.VolumeEnvelopeDirection = false;
+    self.Length = 0;
+    self.LengthEnable = false;
+    self.CounterWidth = false;
+    self.DivisorIndex = 0;
+  }
+
+  def Trigger(self) {
+    // Channel is enabled (see length counter).
+    self.Enable = true;
+
+    // If length counter is zero, it is set to 64 (256 for wave channel).
+    if self.Length == 0 { self.Length = 64; }
+
+    // Frequency timer is reloaded with period.
+    self.Timer = (getDivisor(self.DivisorIndex) << self.Frequency);
+
+    // Volume envelope timer is reloaded with period.
+    self.VolumeEnvelopeTimer = self.VolumeEnvelopePeriod;
+
+    // Channel volume is reloaded from NRx2.
+    self.Volume = self.VolumeInitial;
+
+    // Noise channel's LFSR bits are all set to 1.
+    self.LFSR = 0x7FFF;
+  }
+
+  def Tick(self) {
+    if self.Timer > 0 { self.Timer -= 1; }
+    if self.Timer == 0 {
+      // When clocked by the frequency timer, the low two bits (0 and 1)
+      // are XORed
+      let b = bits.Test(uint8(self.LFSR), 0) ^ bits.Test(uint8(self.LFSR), 1);
+      // All bits are shifted right by one
+      self.LFSR >>= 1;
+      // And the result of the XOR is put into the now-empty high bit
+      if b { self.LFSR |= 0x4000; }
+      // If width mode is 1 (NR43), the XOR result is ALSO put into
+      // bit 6 AFTER the shift, resulting in a 7-bit LFSR.
+      if self.CounterWidth {
+        self.LFSR = (self.LFSR & ~0x40) | uint16(bits.Bit(b, 6));
+      }
+
+      // Reload timer
+      self.Timer = (getDivisor(self.DivisorIndex) << self.Frequency);
+    }
+  }
+
+  def TickLength(self) {
+    if self.Length > 0 { self.Length -= 1; }
+    if self.Length == 0 and self.LengthEnable {
+      self.Enable = false;
+    }
+  }
+
+  def TickVolumeEnvelope(self) {
+    if self.VolumeEnvelopePeriod > 0 {
+      if self.VolumeEnvelopeTimer > 0 { self.VolumeEnvelopeTimer -= 1; }
+      if self.VolumeEnvelopeTimer == 0 {
+        if self.VolumeEnvelopeDirection {
+          if self.Volume < 0xF {
+            self.Volume += 1;
+          }
+        } else {
+          if self.Volume > 0 {
+            self.Volume -= 1;
+          }
+        }
+
+        self.VolumeEnvelopeTimer = self.VolumeEnvelopePeriod;
+      }
+    }
+  }
+
+  def Sample(self): int16 {
+    // The waveform output is bit 0 of the LFSR, INVERTED
+    let bit = not bits.Test(uint8(self.LFSR), 0);
+
+    return int16(self.Volume if bit else 0);
+  }
+
+  // FF20 - NR41 - Channel 4 Sound Length (W)
+  //    Bit 5-0 - Sound length data (t1: 0-63)
+
+  // FF21 - NR42 - Channel 4 Volume Envelope (R/W)
+  //    Bit 7-4 - Initial Volume of envelope (0-0Fh) (0=No Sound)
+  //    Bit 3   - Envelope Direction (0=Decrease, 1=Increase)
+  //    Bit 2-0 - Number of envelope sweep (n: 0-7)
+  //              (If zero, stop envelope operation.)
+
+  // FF22 - NR43 - Channel 4 Polynomial Counter (R/W)
+  //    Bit 7-4 - Shift Clock Frequency (s)
+  //    Bit 3   - Counter Step/Width (0=15 bits, 1=7 bits)
+  //    Bit 2-0 - Dividing Ratio of Frequencies (r)
+
+  // FF23 - NR44 - Channel 4 Counter/consecutive; Inital (R/W)
+  //    Bit 7   - Initial (1=Restart Sound)     (Write Only)
+  //    Bit 6   - Counter/consecutive selection (Read/Write)
+  //              (1=Stop output when length in NR41 expires)
+
+  def Read(self, address: uint16, ptr: *uint8): bool {
+    *ptr = if address == 0xFF21 {
+      (
+        (self.VolumeInitial << 4) |
+        bits.Bit(self.VolumeEnvelopeDirection, 3) |
+        self.VolumeEnvelopePeriod
+      );
+    } else if address == 0xFF22 {
+      (
+        (self.Frequency << 4) |
+        bits.Bit(self.CounterWidth, 3) |
+        self.DivisorIndex
+      );
+    } else if address == 0xFF23 {
+      (bits.Bit(self.LengthEnable, 6) | 0xBF);
+    } else {
+      return false;
+    };
+
+    return true;
+  }
+
+  def Write(self, address: uint16, value: uint8): bool {
+    if address == 0xFF20 {
+      self.Length = 64 - (value & 0b1_1111);
+    } else if address == 0xFF21 {
+      self.VolumeInitial = (value & 0b1111_0000) >> 4;
+      self.Volume = self.VolumeInitial;
+      self.VolumeEnvelopeDirection = bits.Test(value, 3);
+      self.VolumeEnvelopePeriod = (value & 0b111);
+      self.VolumeEnvelopeTimer = self.VolumeEnvelopePeriod;
+    } else if address == 0xFF22 {
+      self.Frequency = (value >> 4);
+      self.Timer = (getDivisor(self.DivisorIndex) << self.Frequency);
+      self.CounterWidth = bits.Test(value, 3);
+      self.DivisorIndex = (value & 0b111);
+    } else if address == 0xFF23 {
+      self.LengthEnable = bits.Test(value, 6);
+
+      if bits.Test(value, 7) {
+        self.Trigger();
+      }
+    } else {
+      return false;
+    };
+
+    return true;
+  }
+}
+
+def getDivisor(index: uint8): uint16 {
+  return
+    if      index == 1 {  16; }
+    else if index == 2 {  32; }
+    else if index == 3 {  48; }
+    else if index == 4 {  64; }
+    else if index == 5 {  80; }
+    else if index == 6 {  96; }
+    else if index == 7 { 112; }
+    else               {   8; };
+}

@@ -18,11 +18,20 @@ struct Sample {
   R: int16;
 }
 
+// TODO: Make configurable
+let BUFFER_SIZE = 1024;
+
+// TODO: Make configurable
+let SAMPLE_RATE = 96000;
+
 struct APU {
   Channel1: channelSquare.ChannelSquare;
   Channel2: channelSquare.ChannelSquare;
   Channel3: channelWave.ChannelWave;
   Channel4: channelNoise.ChannelNoise;
+
+  Buffer: *Sample;
+  BufferIndex: uint32;
 
   // Sound Control Registers
   // -----------------------
@@ -39,7 +48,8 @@ struct APU {
   //    Bit 6-4 - SO2 output level (volume)  (0-7)
   //    Bit 3   - Output Vin to SO1 terminal (1=Enable)
   //    Bit 2-0 - SO1 output level (volume)  (0-7)
-  NR50: uint8;
+  VolumeL: uint8;
+  VolumeR: uint8;
 
   // FF25 - NR51 - Selection of Sound output terminal (R/W)
   //    Bit 7 - Output sound 4 to SO2 terminal
@@ -73,34 +83,44 @@ implement APU {
     let component: APU;
     libc.memset(&component as *uint8, 0, std.size_of<APU>());
 
+    component.Buffer = libc.malloc(uint64(BUFFER_SIZE * 4)) as *Sample;
+    component.BufferIndex = 0;
+
     component.Channel1 = channelSquare.ChannelSquare.New(1);
     component.Channel2 = channelSquare.ChannelSquare.New(2);
-    // TODO: Channel 3
-    // TODO: Channel 4
+    component.Channel3 = channelWave.ChannelWave.New();
+    component.Channel4 = channelNoise.ChannelNoise.New();
 
     return component;
   }
 
   def Release(self) {
-    // TODO: Channel 3
+    libc.free(self.Buffer as *uint8);
+    self.Channel3.Release();
   }
 
   def Reset(self) {
+    self.BufferIndex = 0;
+
     self.Channel1.Reset();
     self.Channel2.Reset();
-    // TODO: self.Channel3.Reset();
-    // TODO: self.Channel4.Reset();
+    self.Channel3.Reset();
+    self.Channel4.Reset();
 
     self.SequencerTimer = 0;
     self.SequencerStep = 0;
-    self.SampleTimer = 95;
+    self.SampleTimer = 4194304 / 48000;
   }
 
   def Read(self, address: uint16, ptr: *uint8): bool {
     if self.Channel1.Read(address, ptr) { return true; }
     if self.Channel2.Read(address, ptr) { return true; }
+    if self.Channel3.Read(address, ptr) { return true; }
+    if self.Channel4.Read(address, ptr) { return true; }
 
-    *ptr = if address == 0xFF25 {
+    *ptr = if address == 0xFF24 {
+      ((self.VolumeR << 4) | (self.VolumeL));
+    } else if address == 0xFF25 {
       (
         bits.Bit(self.Channel4REnable, 7) |
         bits.Bit(self.Channel3REnable, 6) |
@@ -116,8 +136,9 @@ implement APU {
         bits.Bit(self.Enable, 7) |
         bits.Bit(true, 6) |
         bits.Bit(true, 5) |
-        // bits.Bit(self.Channel4.Enable, 3) |
-        // bits.Bit(self.Channel3.Enable, 2) |
+        bits.Bit(true, 4) |
+        bits.Bit(self.Channel4.Enable, 3) |
+        bits.Bit(self.Channel3.Enable, 2) |
         bits.Bit(self.Channel2.Enable, 1) |
         bits.Bit(self.Channel1.Enable, 0)
       );
@@ -131,8 +152,13 @@ implement APU {
   def Write(self, address: uint16, value: uint8): bool {
     if self.Channel1.Write(address, value) { return true; }
     if self.Channel2.Write(address, value) { return true; }
+    if self.Channel3.Write(address, value) { return true; }
+    if self.Channel4.Write(address, value) { return true; }
 
-    if address == 0xFF25 {
+    if address == 0xFF24 {
+      self.VolumeR = (value >> 4) & 0b111;
+      self.VolumeL = value & 0b111;
+    } else if address == 0xFF25 {
       self.Channel4REnable = bits.Test(value, 7);
       self.Channel3REnable = bits.Test(value, 6);
       self.Channel2REnable = bits.Test(value, 5);
@@ -156,8 +182,8 @@ implement APU {
       // Tick: channels
       self.Channel1.Tick();
       self.Channel2.Tick();
-      // TODO: Channel3
-      // TODO: Channel4
+      self.Channel3.Tick();
+      self.Channel4.Tick();
 
       // Tick: frame sequencer
       if self.SequencerTimer > 0 { self.SequencerTimer -= 1; }
@@ -166,14 +192,15 @@ implement APU {
         if self.SequencerStep % 2 == 0 {
           self.Channel1.TickLength();
           self.Channel2.TickLength();
-          // TODO: Channel4
+          self.Channel3.TickLength();
+          self.Channel4.TickLength();
         }
 
         // Volume is adjusted every 7th step
         if self.SequencerStep == 7 {
           self.Channel1.TickVolumeEnvelope();
           self.Channel2.TickVolumeEnvelope();
-          // TODO: Channel4
+          self.Channel4.TickVolumeEnvelope();
         }
 
         // Sweep is adjusted every 2nd and 6th steps
@@ -199,21 +226,41 @@ implement APU {
         if self.Enable {
           let ch1 = self.Channel1.Sample();
           let ch2 = self.Channel2.Sample();
+          let ch3 = self.Channel3.Sample();
+          let ch4 = self.Channel4.Sample();
 
           if self.Channel1LEnable { sample.L += ch1; }
           if self.Channel2LEnable { sample.L += ch2; }
+          if self.Channel3LEnable { sample.L += ch3; }
+          if self.Channel4LEnable { sample.L += ch4; }
 
           if self.Channel1REnable { sample.R += ch1; }
           if self.Channel2REnable { sample.R += ch2; }
+          if self.Channel3REnable { sample.R += ch3; }
+          if self.Channel4REnable { sample.R += ch4; }
+        }
 
-          sample.L *= 50;
-          sample.R *= 50;
+        sample.L *= int16(self.VolumeL) * 24;
+        sample.R *= int16(self.VolumeR) * 24;
 
-          SDL_QueueAudio(1, &sample as *uint8, 4);
+        *(self.Buffer + self.BufferIndex) = sample;
+        self.BufferIndex += 1;
+
+        if self.BufferIndex >= BUFFER_SIZE {
+          self.BufferIndex = 0;
+
+          // FIXME: Move to shell (SDL shouldn't be in here)
+
+          // Drain audio buffer
+          while SDL_GetQueuedAudioSize(1) > (BUFFER_SIZE * 4) {
+            SDL_Delay(1);
+          }
+
+          SDL_QueueAudio(1, self.Buffer as *uint8, (BUFFER_SIZE * 4));
         }
 
         // Reload sample timer
-        self.SampleTimer = 95;
+        self.SampleTimer = uint16(4194304 / SAMPLE_RATE);
       }
 
       n += 1;
