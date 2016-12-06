@@ -128,6 +128,7 @@ implement Machine {
   def Tick(self) {
     self.Timer.Tick();
     self.GPU.Tick();
+    self.APU.Tick();
     // self.LinkCable.Tick();
   }
 

@@ -4,124 +4,35 @@ import "libc";
 import "./mmu";
 import "./bits";
 
-// TODO: Re-organize registers rather than blind bytes
+import "./channelSquare";
+import "./channelWave";
+import "./channelNoise";
+
+#include "SDL2/SDL.h"
+
+struct Sample {
+  // Left output terminal (L)
+  L: int16;
+
+  // Right output terminal (R)
+  R: int16;
+}
 
 struct APU {
-  // Channel 1 - Tone & Sweep
-  // ------------------------
-
-  // FF10 - NR10 - Channel 1 Sweep register (R/W)
-  //    Bit 6-4 - Sweep Time
-  //    Bit 3   - Sweep Increase/Decrease
-  //               0: Addition    (frequency increases)
-  //               1: Subtraction (frequency decreases)
-  //    Bit 2-0 - Number of sweep shift (n: 0-7)
-  NR10: uint8;
-
-  // FF11 - NR11 - Channel 1 Sound length/Wave pattern duty (R/W)
-  //    Bit 7-6 - Wave Pattern Duty (Read/Write)
-  //    Bit 5-0 - Sound length data (Write Only) (t1: 0-63)
-  NR11: uint8;
-
-  // FF12 - NR12 - Channel 1 Volume Envelope (R/W)
-  //    Bit 7-4 - Initial Volume of envelope (0-0Fh) (0=No Sound)
-  //    Bit 3   - Envelope Direction (0=Decrease, 1=Increase)
-  //    Bit 2-0 - Number of envelope sweep (n: 0-7)
-  //              (If zero, stop envelope operation.)
-  NR12: uint8;
-
-  // FF13 - NR13 - Channel 1 Frequency lo (Write Only)
-  NR13: uint8;
-
-  // FF14 - NR14 - Channel 1 Frequency hi (R/W)
-  //    Bit 7   - Initial (1=Restart Sound)     (Write Only)
-  //    Bit 6   - Counter/consecutive selection (Read/Write)
-  //              (1=Stop output when length in NR11 expires)
-  //    Bit 2-0 - Frequency's higher 3 bits (x) (Write Only)
-  NR14: uint8;
-
-  // Channel 2 - Tone
-  // ----------------
-
-  // FF16 - NR21 - Channel 2 Sound Length/Wave Pattern Duty (R/W)
-  //    Bit 7-6 - Wave Pattern Duty (Read/Write)
-  //    Bit 5-0 - Sound length data (Write Only) (t1: 0-63)
-  NR21: uint8;
-
-  // FF17 - NR22 - Channel 2 Volume Envelope (R/W)
-  //    Bit 7-4 - Initial Volume of envelope (0-0Fh) (0=No Sound)
-  //    Bit 3   - Envelope Direction (0=Decrease, 1=Increase)
-  //    Bit 2-0 - Number of envelope sweep (n: 0-7)
-  //              (If zero, stop envelope operation.)
-  NR22: uint8;
-
-  // FF18 - NR23 - Channel 2 Frequency lo data (W)
-  NR23: uint8;
-
-  // FF19 - NR24 - Channel 2 Frequency hi data (R/W)
-  //    Bit 7   - Initial (1=Restart Sound)     (Write Only)
-  //    Bit 6   - Counter/consecutive selection (Read/Write)
-  //              (1=Stop output when length in NR21 expires)
-  //    Bit 2-0 - Frequency's higher 3 bits (x) (Write Only)
-  NR24: uint8;
-
-  // Channel 3 - Wave Output
-  // -----------------------
-
-  // FF1A - NR30 - Channel 3 Sound on/off (R/W)
-  //    Bit 7 - Sound Channel 3 Off  (0=Stop, 1=Playback)  (Read/Write)
-  NR30: uint8;
-
-  // FF1B - NR31 - Channel 3 Sound Length (R/W)
-  //    Bit 7-0 - Sound length (t1: 0 - 255)
-  NR31: uint8;
-
-  // FF1C - NR32 - Channel 3 Select output level (R/W)
-  //    Bit 6-5 - Select output level (Read/Write)
-  NR32: uint8;
-
-  // FF1D - NR33 - Channel 3 Frequency's lower data (W)
-  NR33: uint8;
-
-  // FF1E - NR34 - Channel 3 Frequency's higher data (R/W)
-  //    Bit 7   - Initial (1=Restart Sound)     (Write Only)
-  //    Bit 6   - Counter/consecutive selection (Read/Write)
-  //              (1=Stop output when length in NR31 expires)
-  //    Bit 2-0 - Frequency's higher 3 bits (x) (Write Only)
-  NR34: uint8;
-
-  // FF30-FF3F - Wave Pattern RAM (16 bytes)
-  // Contents - Waveform storage for arbitrary sound data
-  C3_WavePatternRAM: *uint8;
-
-  // Channel 4 - Noise
-  // -----------------
-
-  // FF20 - NR41 - Channel 4 Sound Length (R/W)
-  //    Bit 5-0 - Sound length data (t1: 0-63)
-  NR41: uint8;
-
-  // FF21 - NR42 - Channel 4 Volume Envelope (R/W)
-  //    Bit 7-4 - Initial Volume of envelope (0-0Fh) (0=No Sound)
-  //    Bit 3   - Envelope Direction (0=Decrease, 1=Increase)
-  //    Bit 2-0 - Number of envelope sweep (n: 0-7)
-  //              (If zero, stop envelope operation.)
-  NR42: uint8;
-
-  // FF22 - NR43 - Channel 4 Polynomial Counter (R/W)
-  //    Bit 7-4 - Shift Clock Frequency (s)
-  //    Bit 3   - Counter Step/Width (0=15 bits, 1=7 bits)
-  //    Bit 2-0 - Dividing Ratio of Frequencies (r)
-  NR43: uint8;
-
-  // FF23 - NR44 - Channel 4 Counter/consecutive; Inital (R/W)
-  //    Bit 7   - Initial (1=Restart Sound)     (Write Only)
-  //    Bit 6   - Counter/consecutive selection (Read/Write)
-  //              (1=Stop output when length in NR41 expires)
-  NR44: uint8;
+  Channel1: channelSquare.ChannelSquare;
+  Channel2: channelSquare.ChannelSquare;
+  Channel3: channelWave.ChannelWave;
+  Channel4: channelNoise.ChannelNoise;
 
   // Sound Control Registers
   // -----------------------
+
+  // Frame sequencer
+  SequencerTimer: uint16;
+  SequencerStep: uint8;
+
+  // Sample timer (<hz> / <sample_rate>)
+  SampleTimer: uint16;
 
   // FF24 - NR50 - Channel control / ON-OFF / Volume (R/W)
   //    Bit 7   - Output Vin to SO2 terminal (1=Enable)
@@ -139,7 +50,14 @@ struct APU {
   //    Bit 2 - Output sound 3 to SO1 terminal
   //    Bit 1 - Output sound 2 to SO1 terminal
   //    Bit 0 - Output sound 1 to SO1 terminal
-  NR51: uint8;
+  Channel4REnable: bool;
+  Channel3REnable: bool;
+  Channel2REnable: bool;
+  Channel1REnable: bool;
+  Channel4LEnable: bool;
+  Channel3LEnable: bool;
+  Channel2LEnable: bool;
+  Channel1LEnable: bool;
 
   // FF26 - NR52 - Sound on/off
   //    Bit 7 - All sound on/off  (0: stop all sound circuits) (Read/Write)
@@ -147,7 +65,7 @@ struct APU {
   //    Bit 2 - Sound 3 ON flag (Read Only)
   //    Bit 1 - Sound 2 ON flag (Read Only)
   //    Bit 0 - Sound 1 ON flag (Read Only)
-  M_SoundEnabled: bool;
+  Enable: bool;
 }
 
 implement APU {
@@ -155,64 +73,54 @@ implement APU {
     let component: APU;
     libc.memset(&component as *uint8, 0, std.size_of<APU>());
 
-    component.C3_WavePatternRAM = libc.malloc(16);
+    component.Channel1 = channelSquare.ChannelSquare.New(1);
+    component.Channel2 = channelSquare.ChannelSquare.New(2);
+    // TODO: Channel 3
+    // TODO: Channel 4
 
     return component;
   }
 
   def Release(self) {
-    libc.free(self.C3_WavePatternRAM);
+    // TODO: Channel 3
+  }
+
+  def Reset(self) {
+    self.Channel1.Reset();
+    self.Channel2.Reset();
+    // TODO: self.Channel3.Reset();
+    // TODO: self.Channel4.Reset();
+
+    self.SequencerTimer = 0;
+    self.SequencerStep = 0;
+    self.SampleTimer = 95;
   }
 
   def Read(self, address: uint16, ptr: *uint8): bool {
-    *ptr = if address == 0xFF10 {
-      (self.NR10 | 0x80);
-    } else if address == 0xFF11 {
-      (self.NR11 | 0b0011_1111);
-    } else if address == 0xFF12 {
-      self.NR12;
-    } else if address == 0xFF14 {
-      (self.NR14 | 0b1011_1111);
-    } else if address == 0xFF16 {
-      (self.NR21 | 0b0011_1111);
-    } else if address == 0xFF17 {
-      self.NR22;
-    } else if address == 0xFF19 {
-      (self.NR24 | 0b1011_1111);
-    } else if address == 0xFF1A {
-      (self.NR30 | 0b0111_1111);
-    } else if address == 0xFF1B {
-      self.NR31;
-    } else if address == 0xFF1C {
-      (self.NR32 | 0b1001_1111);
-    } else if address == 0xFF1E {
-      (self.NR34 | 0b1011_1111);
-    } else if address == 0xFF20 {
-      (self.NR41 | 0b1100_0000);
-    } else if address == 0xFF21 {
-      self.NR42;
-    } else if address == 0xFF22 {
-      self.NR43;
-    } else if address == 0xFF23 {
-      (self.NR44 | 0b1011_1111);
-    } else if address == 0xFF24 {
-      self.NR50;
-    } else if address == 0xFF25 {
-      self.NR51;
+    if self.Channel1.Read(address, ptr) { return true; }
+    if self.Channel2.Read(address, ptr) { return true; }
+
+    *ptr = if address == 0xFF25 {
+      (
+        bits.Bit(self.Channel4REnable, 7) |
+        bits.Bit(self.Channel3REnable, 6) |
+        bits.Bit(self.Channel2REnable, 5) |
+        bits.Bit(self.Channel1REnable, 4) |
+        bits.Bit(self.Channel4LEnable, 3) |
+        bits.Bit(self.Channel3LEnable, 2) |
+        bits.Bit(self.Channel2LEnable, 1) |
+        bits.Bit(self.Channel1LEnable, 0)
+      );
     } else if address == 0xFF26 {
       (
-        bits.Bit(self.M_SoundEnabled, 7) |
+        bits.Bit(self.Enable, 7) |
         bits.Bit(true, 6) |
         bits.Bit(true, 5) |
-        bits.Bit(true, 4) |
-        // TODO: Compute actual ON/OFF of sound channel
-        bits.Bit(false, 3) |
-        bits.Bit(false, 2) |
-        bits.Bit(false, 1) |
-        bits.Bit(true, 0)
+        // bits.Bit(self.Channel4.Enable, 3) |
+        // bits.Bit(self.Channel3.Enable, 2) |
+        bits.Bit(self.Channel2.Enable, 1) |
+        bits.Bit(self.Channel1.Enable, 0)
       );
-    } else if address >= 0xFF30 and address <= 0xFF3F {
-      *(self.C3_WavePatternRAM + (address - 0xFF30));
     } else {
       return false;
     };
@@ -221,50 +129,20 @@ implement APU {
   }
 
   def Write(self, address: uint16, value: uint8): bool {
-    if address == 0xFF10 {
-      self.NR10 = (value & ~0x80);
-    } else if address == 0xFF11 {
-      self.NR11 = (value & 0xC0);
-    } else if address == 0xFF12 {
-      self.NR12 = value;
-    } else if address == 0xFF13 {
-      self.NR13 = value;
-    } else if address == 0xFF14 {
-      self.NR14 = value;
-    } else if address == 0xFF16 {
-      self.NR21 = value;
-    } else if address == 0xFF17 {
-      self.NR22 = value;
-    } else if address == 0xFF18 {
-      self.NR23 = value;
-    } else if address == 0xFF19 {
-      self.NR24 = value;
-    } else if address == 0xFF1A {
-      self.NR30 = (value & 0x80);
-    } else if address == 0xFF1B {
-      self.NR31 = value;
-    } else if address == 0xFF1C {
-      self.NR32 = value & 0x60;
-    } else if address == 0xFF1D {
-      self.NR33 = value;
-    } else if address == 0xFF1E {
-      self.NR34 = value;
-    } else if address == 0xFF20 {
-      self.NR41 = value & 0b11_1111;
-    } else if address == 0xFF21 {
-      self.NR42 = value;
-    } else if address == 0xFF22 {
-      self.NR43 = value;
-    } else if address == 0xFF23 {
-      self.NR44 = value & 0b1100_0000;
-    } else if address == 0xFF24 {
-      self.NR50 = value;
-    } else if address == 0xFF25 {
-      self.NR51 = value;
+    if self.Channel1.Write(address, value) { return true; }
+    if self.Channel2.Write(address, value) { return true; }
+
+    if address == 0xFF25 {
+      self.Channel4REnable = bits.Test(value, 7);
+      self.Channel3REnable = bits.Test(value, 6);
+      self.Channel2REnable = bits.Test(value, 5);
+      self.Channel1REnable = bits.Test(value, 4);
+      self.Channel4LEnable = bits.Test(value, 3);
+      self.Channel3LEnable = bits.Test(value, 2);
+      self.Channel2LEnable = bits.Test(value, 1);
+      self.Channel1LEnable = bits.Test(value, 0);
     } else if address == 0xFF26 {
-      self.M_SoundEnabled = bits.Test(value, 7);
-    } else if address >= 0xFF30 and address <= 0xFF3F {
-      *(self.C3_WavePatternRAM + (address - 0xFF30)) = value;
+      self.Enable = bits.Test(value, 7);
     } else {
       return false;
     }
@@ -273,7 +151,73 @@ implement APU {
   }
 
   def Tick(self) {
-    // ...
+    let n = 0;
+    while n < 4 {
+      // Tick: channels
+      self.Channel1.Tick();
+      self.Channel2.Tick();
+      // TODO: Channel3
+      // TODO: Channel4
+
+      // Tick: frame sequencer
+      if self.SequencerTimer > 0 { self.SequencerTimer -= 1; }
+      if self.SequencerTimer == 0 {
+        // Length counter is updated every other step
+        if self.SequencerStep % 2 == 0 {
+          self.Channel1.TickLength();
+          self.Channel2.TickLength();
+          // TODO: Channel4
+        }
+
+        // Volume is adjusted every 7th step
+        if self.SequencerStep == 7 {
+          self.Channel1.TickVolumeEnvelope();
+          self.Channel2.TickVolumeEnvelope();
+          // TODO: Channel4
+        }
+
+        // Sweep is adjusted every 2nd and 6th steps
+        if self.SequencerStep == 2 or self.SequencerStep == 6 {
+          self.Channel1.TickSweep();
+        }
+
+        // Step the sequencer
+        self.SequencerStep += 1;
+        if self.SequencerStep == 8 { self.SequencerStep = 0; }
+
+        // Reload sequencer timer
+        self.SequencerTimer = 8192;
+      }
+
+      // Sample
+      if self.SampleTimer > 0 { self.SampleTimer -= 1; }
+      if self.SampleTimer == 0 {
+        let sample: Sample;
+        sample.L = 0;
+        sample.R = 0;
+
+        if self.Enable {
+          let ch1 = self.Channel1.Sample();
+          let ch2 = self.Channel2.Sample();
+
+          if self.Channel1LEnable { sample.L += ch1; }
+          if self.Channel2LEnable { sample.L += ch2; }
+
+          if self.Channel1REnable { sample.R += ch1; }
+          if self.Channel2REnable { sample.R += ch2; }
+
+          sample.L *= 50;
+          sample.R *= 50;
+
+          SDL_QueueAudio(1, &sample as *uint8, 4);
+        }
+
+        // Reload sample timer
+        self.SampleTimer = 95;
+      }
+
+      n += 1;
+    }
   }
 
   def AsMemoryController(self, this: *APU): mmu.MemoryController {

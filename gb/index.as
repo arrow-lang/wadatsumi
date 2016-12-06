@@ -74,7 +74,7 @@ def acquire() {
   // Open Audio
   let asp: SDL_AudioSpec;
   libc.memset(&asp as *uint8, 0, std.size_of<SDL_AudioSpec>());
-  asp.freq = 48000;
+  asp.freq = 41943;
   asp.format = 0x8010;  // Signed 16-bit samples (LE)
   asp.channels = 2;
   asp.samples = 4096;
