@@ -92,14 +92,23 @@ implement CPU {
     self.IME = 1;
     self.HALT = 0;
 
-    self.AF = 0x01B0;
-    self.BC = 0x0013;
-    self.DE = 0x00D8;
-    self.HL = 0x014D;
+    self.AF =
+      if self.Machine.Mode == machine.MODE_CGB { 0x1180; }
+      else                                     { 0x01B0; };
+
+    self.BC =
+      if self.Machine.Mode == machine.MODE_CGB { 0x0000; }
+      else                                     { 0x0013; };
+
+    self.DE =
+      if self.Machine.Mode == machine.MODE_CGB { 0x0008; }
+      else                                     { 0x00D8; };
+
+    self.HL =
+      if self.Machine.Mode == machine.MODE_CGB { 0x007C; }
+      else                                     { 0x014D; };
 
     self.IE = 0x01;
-
-    // TODO: mooneye seems to indicate this is $01 at first boot .. odd to me
     self.IF = 0x01;
   }
 

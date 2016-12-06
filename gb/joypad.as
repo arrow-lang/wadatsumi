@@ -1,5 +1,6 @@
 import "./cpu";
 import "./mmu";
+import "./machine";
 import "./bits";
 
 struct Joypad {
@@ -28,9 +29,10 @@ implement Joypad {
     return j;
   }
 
-  def Reset(self) {
-    self.Select_Button = true;
-    self.Select_Direction = true;
+  def Reset(self, mode: machine.MachineMode) {
+    // Input starts off disabled on CGB (but enabled on GB)
+    self.Select_Button = (mode == machine.MODE_GB);
+    self.Select_Direction = (mode == machine.MODE_GB);
 
     self.State_Start = false;
     self.State_A = false;

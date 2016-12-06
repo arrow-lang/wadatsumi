@@ -28,7 +28,7 @@ extern "C" def SDL_OpenAudio(desired: *SDL_AudioSpec, obtained: *SDL_AudioSpec):
 let SDL_INIT_VIDEO: uint32 = 0x00000020;
 let SDL_INIT_AUDIO: uint32 = 0x00000010;
 
-let SCALE: uint64 = 5;
+let SCALE: uint64 = 3;
 let WIDTH: uint64 = 160;
 let HEIGHT: uint64 = 144;
 
@@ -110,7 +110,7 @@ def main(argc: int32, argv: *str) {
   acquire();
 
   // let s = shell.Shell.New();
-  let m = machine.Machine.New();
+  let m = machine.Machine.New(machine.MODE_AUTO);
 
   // HACK: Taking the address of a reference (`self`) dies
   m.Acquire(&m);

@@ -2,6 +2,7 @@ import "std";
 import "libc";
 
 import "./cpu";
+import "./machine";
 import "./mmu";
 
 // BUG(arrow): wanted to do "../bits" but arrow doesn't work with that
@@ -41,6 +42,7 @@ struct Sprite {
 
 struct GPU {
   CPU: *cpu.CPU;
+  Machine: *machine.Machine;
 
   // On Refresh (on V-Blank)
   OnRefresh: (*Frame) -> ();
@@ -48,8 +50,11 @@ struct GPU {
   // Pixel data for frame that is rewritten each V-Blank
   FrameBuffer: *uint32;
 
-  // Video RAM — 8 KiB
+  // Video RAM — 8 KiB (GB) or 16 KiB (CGB, 2 Banks)
   VRAM: *uint8;
+
+  // FF4F - VBK - CGB Mode Only - VRAM Bank (0-1)
+  VBK: uint8;
 
   // Sprite Attribute Table (OAM) — 160 Bytes
   OAM: *uint8;
@@ -113,7 +118,7 @@ struct GPU {
   TileDataSelect: bool;
 
   //   Bit 3 - BG Tile Map Display Select     (0=9800-9BFF, 1=9C00-9FFF)
-  BackgroundTimeMapSelect: bool;
+  BackgroundTileMapSelect: bool;
 
   //   Bit 2 - OBJ (Sprite) Size              (0=8x8, 1=8x16)
   SpriteSize: bool;
@@ -147,19 +152,43 @@ struct GPU {
 
   // FF49 - OBP1 - Object Palette 1 Data (R/W)
   OBP1: uint8;
+
+  // FF68 - BCPS/BGPI - CGB Mode Only - Background Palette Index
+  //    Bit 0-5   Index (00-3F)
+  BCPI: uint8;
+  //    Bit 7     Auto Increment  (0=Disabled, 1=Increment after Writing)
+  BCPI_AutoIncrement: bool;
+
+  // FF69 - BCPD/BGPD - CGB Mode Only - Background Palette Data (x8)
+  //    Bit 0-4   Red Intensity   (00-1F)
+  //    Bit 5-9   Green Intensity (00-1F)
+  //    Bit 10-14 Blue Intensity  (00-1F)
+  BCPD: *uint8;
+
+  // FF6A - OCPS/OBPI - CGB Mode Only - Sprite Palette Index
+  //    Same as BCPS but for the sprite palette
+  OCPI: uint8;
+  OCPI_AutoIncrement: bool;
+
+  // FF6B - OCPD/OBPD - CGB Mode Only - Sprite Palette Data
+  //    Same as BCDP but for the sprite palette
+  OCPD: *uint8;
 }
 
 implement GPU {
-  def New(cpu_: *cpu.CPU): Self {
+  def New(machine_: *machine.Machine, cpu_: *cpu.CPU): Self {
     let g: GPU;
     libc.memset(&g as *uint8, 0, std.size_of<GPU>());
 
     g.CPU = cpu_;
-    g.VRAM = libc.malloc(0x2000);
+    g.Machine = machine_;
+    g.VRAM = libc.malloc(0x4000);
     g.OAM = libc.malloc(160);
     g.FrameBuffer = libc.malloc(DISP_HEIGHT * DISP_WIDTH * 4) as *uint32;
     g.SpriteXCache = libc.malloc(DISP_HEIGHT * DISP_WIDTH);
     g.PixelCache = libc.malloc(DISP_HEIGHT * DISP_WIDTH);
+    g.BCPD = libc.malloc(0x40);
+    g.OCPD = libc.malloc(0x40);
 
     return g;
   }
@@ -170,10 +199,12 @@ implement GPU {
     libc.free(self.FrameBuffer as *uint8);
     libc.free(self.SpriteXCache);
     libc.free(self.PixelCache);
+    libc.free(self.BCPD);
+    libc.free(self.OCPD);
   }
 
   def Reset(self) {
-    libc.memset(self.VRAM, 0, 0x2000);
+    libc.memset(self.VRAM, 0, 0x4000);
     libc.memset(self.OAM, 0, 160);
     libc.memset(self.FrameBuffer as *uint8, 0, (DISP_HEIGHT * DISP_WIDTH * 4));
     libc.memset(self.SpriteXCache, 0, (DISP_HEIGHT * DISP_WIDTH));
@@ -185,6 +216,30 @@ implement GPU {
 
     self.Mode = 0;
     self.Cycles = 0;
+
+    self.BGP = 0xFC;
+    self.OBP0 = 0xFF if self.Machine.Mode == machine.MODE_GB else 0;
+    self.OBP1 = 0xFF if self.Machine.Mode == machine.MODE_GB else 0;
+
+    if self.Machine.Mode == machine.MODE_CGB {
+      // Initialize color palettes to white — each color is 2 bytes ($7FFF)
+      let i = 0;
+      while i < 0x40 {
+        let c = uint8(0xFF if i % 2 == 0 else 0x7F);
+
+        *(self.BCPD + i) = c;
+        *(self.OCPD + i) = c;
+
+        i += 1;
+      }
+
+      // Initialize palette indexes and turn auto-increment on
+      // Values come from mooneye's tests
+      self.BCPI = 0x08;
+      self.BCPI_AutoIncrement = true;
+      self.OCPI = 0x10;
+      self.OCPI_AutoIncrement = true;
+    }
   }
 
   def SetOnRefresh(self, fn: (*Frame) -> ()) {
@@ -192,6 +247,15 @@ implement GPU {
   }
 
   def Render(self) {
+    // Clear line
+    // let i = 0;
+    // let offset = uint64(self.LY) * DISP_WIDTH;
+    // while i < DISP_WIDTH {
+    //   *(self.PixelCache + offset + i) = 0;
+    //   *(self.FrameBuffer + offset + i) = 0xFFFFFFFF;
+    //   i += 1;
+    // }
+
     if self.BackgroundEnable {
       self.RenderBackground();
     } else {
@@ -220,7 +284,7 @@ implement GPU {
     let line = (uint64(self.LY) + uint64(self.SCY)) & 0xFF;
 
     // Tile Map (Offset)
-    let map = 0x1C00 if self.BackgroundTimeMapSelect else 0x1800;
+    let map = 0x1C00 if self.BackgroundTileMapSelect else 0x1800;
     map += (line >> 3) << 5;
 
     let i = 0;
@@ -229,18 +293,34 @@ implement GPU {
     let offset = uint64(self.LY) * DISP_WIDTH;
 
     while i < DISP_WIDTH {
-      // Get pixel data of tile (and apply palette)
-      let tile = self.getTile(map, (
-        ((self.SCX / 8) + (x / 8)) % 32
-      ), self.TileDataSelect);
-      let pixel = self.getPixelForTile(tile, x % 8, y);
+      let mapOffset = ((self.SCX / 8) + (x / 8)) % 32;
+
+      // Get background attributes for background tile (if CGB)
+      let attr = 0;
+      if self.Machine.Mode == machine.MODE_CGB {
+        attr = *(self.VRAM + (0x2000 + map + uint64(mapOffset)));
+      }
+
+      // Get pixel data of tile
+      let tile = self.getTile(map, mapOffset, self.TileDataSelect);
+
+      let tileX = (7 - (x % 8)) if bits.Test(attr, 5) else (x % 8);
+      let tileY = (7 - y) if bits.Test(attr, 6) else y;
+
+      let pixel = self.getPixelForTile(tile, tileX, tileY, (attr & 0x8) >> 3);
 
       // Set pixel cache
       *(self.PixelCache + offset + i) = 1 if pixel > 0 else 0;
 
+      // Apply palette and color processing
+      let color = if self.Machine.Mode == machine.MODE_CGB {
+        self.getColorForColorPixel(pixel, self.BCPD, attr & 0b111);
+      } else {
+        self.getColorForMonoPixel(pixel, self.BGP);
+      };
+
       // Push pixel to framebuffer
-      pixel = (self.BGP >> (pixel << 1)) & 0x3;
-      *(self.FrameBuffer + offset + i) = self.getColorForPixel(pixel);
+      *(self.FrameBuffer + offset + i) = color;
 
       x += 1;
       i += 1;
@@ -259,16 +339,35 @@ implement GPU {
       let offset = uint64(self.LY) * DISP_WIDTH;
 
       while i < DISP_WIDTH {
+        let mapOffset = x / 8;
+
+        // Get background attributes for background tile (if CGB)
+        let attr = 0;
+        if self.Machine.Mode == machine.MODE_CGB {
+          attr = *(self.VRAM + (0x2000 + map + uint64(mapOffset)));
+        }
+
         // Get pixel data of tile (and apply palette)
-        let tile = self.getTile(map, x / 8, self.TileDataSelect);
-        let pixel = self.getPixelForTile(tile, x % 8, y);
+        let tile = self.getTile(map, mapOffset, self.TileDataSelect);
+
+        let tileX = (7 - (x % 8)) if bits.Test(attr, 5) else (x % 8);
+        let tileY = (7 - y) if bits.Test(attr, 6) else y;
+
+        let pixel = self.getPixelForTile(
+          tile, tileX, tileY, (attr & 0x8) >> 3);
 
         // Set pixel cache
         *(self.PixelCache + offset + i) |= 1 if pixel > 0 else 0;
 
+        // Apply palette and color processing
+        let color = if self.Machine.Mode == machine.MODE_CGB {
+          self.getColorForColorPixel(pixel, self.BCPD, attr & 0b111);
+        } else {
+          self.getColorForMonoPixel(pixel, self.BGP);
+        };
+
         // Push pixel to framebuffer
-        pixel = (self.BGP >> (pixel << 1)) & 0x3;
-        *(self.FrameBuffer + offset + i) = self.getColorForPixel(pixel);
+        *(self.FrameBuffer + offset + i) = color;
 
         x += 1;
         i += 1;
@@ -302,6 +401,9 @@ implement GPU {
       let s = *((self.OAM as *Sprite) + i);
       let sy = int16(s.Y) - 16;
       let sx = int16(s.X) - 8;
+
+      // Ensure bits 3-0 are clear in GB mode (CGB attrs)
+      if self.Machine.Mode == machine.MODE_GB { s.Flags &= ~0b1111; }
 
       // Remember, we are rendering on a line-by-line basis
       // Does this sprite intersect our current scanline?
@@ -357,7 +459,8 @@ implement GPU {
             let tileX = uint8((7 - x) if bits.Test(s.Flags, 5) else x);
 
             // Get pixel data of tile (and apply palette)
-            let pixel = self.getPixelForTile(uint16(s.Tile), tileX, tileY);
+            let pixel = self.getPixelForTile(
+              uint16(s.Tile), tileX, tileY, (s.Flags & 0x8) >> 3);
 
             // Update priority cache
             *(self.PixelCache + cacheOffset) |= 0x2 if pixel > 0 else 0;
@@ -372,12 +475,16 @@ implement GPU {
               continue;
             }
 
-            let palette = self.OBP1 if bits.Test(s.Flags, 4) else self.OBP0;
-            pixel = (palette >> (pixel << 1)) & 0x3;
+            // Apply palette and color processing
+            let color = if self.Machine.Mode == machine.MODE_CGB {
+              self.getColorForColorPixel(pixel, self.OCPD, s.Flags & 0b111);
+            } else {
+              let palette = self.OBP1 if bits.Test(s.Flags, 4) else self.OBP0;
+              self.getColorForMonoPixel(pixel, palette);
+            };
 
             // Push pixel to framebuffer
-            let offs = offset + uint64(sx + x);
-            *(self.FrameBuffer + offs) = self.getColorForPixel(pixel);
+            *(self.FrameBuffer + (offset + uint64(sx + x))) = color;
           } else {
             // Off screen (with X) still counts as rendered
             rendered = true;
@@ -398,24 +505,25 @@ implement GPU {
   // Get tile index from map
   def getTile(self, map: uint64, offset: uint8, tileDataSelect: bool): uint16 {
     return if tileDataSelect {
-      uint16(*(self.VRAM + map + offset));
+      uint16(*(self.VRAM + map + uint64(offset)));
     } else {
-      uint16(int8(*(self.VRAM + map + offset))) + 256;
+      uint16(int8(*(self.VRAM + map + uint64(offset)))) + 256;
     };
   }
 
   // Get pixel data for a specific tile and coordinates
-  def getPixelForTile(self, tile: uint16, x: uint8, y: uint8): uint8 {
+  def getPixelForTile(self, tile: uint16, x: uint8, y: uint8, bank: uint8): uint8 {
     let offset: uint16 = tile * 16 + uint16(y) * 2;
 
     return (
-      ((*(self.VRAM + offset + 1) >> (7 - x) << 1) & 2) |
-      ((*(self.VRAM + offset + 0) >> (7 - x)) & 1)
+      ((*(self.VRAM + (0x2000 * uint16(bank)) + offset + 1) >> (7 - x) << 1) & 2) |
+      ((*(self.VRAM + (0x2000 * uint16(bank)) + offset + 0) >> (7 - x)) & 1)
     );
   }
 
   // TODO: Make configurable
-  def getColorForPixel(self, pixel: uint8): uint32 {
+  def getColorForMonoPixel(self, pixel: uint8, palette: uint8): uint32 {
+    pixel = (palette >> (pixel << 1)) & 0x3;
     return if pixel == 0 {
       // Grayscale
       0xFFFFFFFF;
@@ -447,6 +555,30 @@ implement GPU {
     } else {
       0;
     };
+  }
+
+  def getColorForColorPixel(self,
+    pixel: uint8,
+    palette: *uint8,
+    paletteIndex: uint8
+  ): uint32 {
+    // Every 8-bytes is a new entry and each entry is 0-3 according to the
+    // tile data
+    let index = (paletteIndex << 3) + (pixel << 1);
+    let paltteEntryLo = *(palette + index + 0);
+    let paltteEntryHi = *(palette + index + 1);
+    let red = paltteEntryLo & 0x1F;
+    let green = ((paltteEntryLo >> 5) | ((paltteEntryHi & 0x3) << 3)) & 0x1F;
+    let blue = (paltteEntryHi >> 2) & 0x1F;
+
+    // TODO: Find and use a lookup table instead.. I'm sure its not an even
+    //       gamut
+
+    let r = (uint32(red) * 255) / 31;
+    let g = (uint32(green) * 255) / 31;
+    let b = (uint32(blue) * 255) / 31;
+
+    return 0xFF000000 | (r << 16) | (g << 8) | b;
   }
 
   def Refresh(self) {
@@ -544,7 +676,7 @@ implement GPU {
       if self.Mode == 3 {
         0xFF;
       } else {
-        *(self.VRAM + (address & 0x1FFF));
+        *(self.VRAM + (0x2000 * uint16(self.VBK)) + (address & 0x1FFF));
       }
     } else if address >= 0xFE00 and address <= 0xFE9F {
       // OAM cannot be read during mode-2 or mode-3
@@ -559,7 +691,7 @@ implement GPU {
         bits.Bit(self.WindowTileMapSelect, 6) |
         bits.Bit(self.WindowEnable, 5) |
         bits.Bit(self.TileDataSelect, 4) |
-        bits.Bit(self.BackgroundTimeMapSelect, 3) |
+        bits.Bit(self.BackgroundTileMapSelect, 3) |
         bits.Bit(self.SpriteSize, 2) |
         bits.Bit(self.SpriteEnable, 1) |
         bits.Bit(self.BackgroundEnable, 0)
@@ -592,6 +724,16 @@ implement GPU {
       self.WY;
     } else if address == 0xFF4B {
       self.WX;
+    } else if address == 0xFF4F and self.Machine.Mode == machine.MODE_CGB {
+      (self.VBK | 0b1111_1110);
+    } else if address == 0xFF68 and self.Machine.Mode == machine.MODE_CGB {
+      (self.BCPI | 0x40 | bits.Bit(self.BCPI_AutoIncrement, 7));
+    } else if address == 0xFF69 and self.Machine.Mode == machine.MODE_CGB {
+      ((*(self.BCPD + self.BCPI)) | ((self.BCPI % 2) * 0x80));
+    } else if address == 0xFF6A and self.Machine.Mode == machine.MODE_CGB {
+      (self.OCPI | 0x40 | bits.Bit(self.OCPI_AutoIncrement, 7));
+    } else if address == 0xFF6B and self.Machine.Mode == machine.MODE_CGB {
+      ((*(self.OCPD + self.OCPI)) | ((self.OCPI % 2) * 0x80));
     } else {
       return false;
     };
@@ -601,21 +743,17 @@ implement GPU {
 
   def Write(self, address: uint16, value: uint8): bool {
     if address >= 0x8000 and address <= 0x9FFF {
-      // VRAM cannot be written during mode-3
-      if self.Mode != 3 {
-        *(self.VRAM + (address & 0x1FFF)) = value;
-      }
+      // VRAM cannot be written during mode-3 (?)
+      *(self.VRAM + (0x2000 * uint16(self.VBK)) + (address & 0x1FFF)) = value;
     } else if address >= 0xFE00 and address <= 0xFE9F {
-      // OAM cannot be written during mode-2 or mode-3
-      if self.Mode < 2 {
-        *(self.OAM + (address - 0xFE00)) = value;
-      }
+      // OAM cannot be written during mode-2 or mode-3 (?)
+      *(self.OAM + (address - 0xFE00)) = value;
     } else if address == 0xFF40 {
       self.LCDEnable = bits.Test(value, 7);
       self.WindowTileMapSelect = bits.Test(value, 6);
       self.WindowEnable = bits.Test(value, 5);
       self.TileDataSelect = bits.Test(value, 4);
-      self.BackgroundTimeMapSelect = bits.Test(value, 3);
+      self.BackgroundTileMapSelect = bits.Test(value, 3);
       self.SpriteSize = bits.Test(value, 2);
       self.SpriteEnable = bits.Test(value, 1);
       self.BackgroundEnable = bits.Test(value, 0);
@@ -647,6 +785,30 @@ implement GPU {
       self.WY = value;
     } else if address == 0xFF4B {
       self.WX = value;
+    } else if address == 0xFF4F and self.Machine.Mode == machine.MODE_CGB {
+      self.VBK = value & 0x1;
+    } else if address == 0xFF68 and self.Machine.Mode == machine.MODE_CGB {
+      self.BCPI = value & 0x3F;
+      self.BCPI_AutoIncrement = bits.Test(value, 7);
+    } else if address == 0xFF69 and self.Machine.Mode == machine.MODE_CGB {
+      *(self.BCPD + self.BCPI) = (value & ~((self.BCPI % 2) * 0x80));
+
+      // Auto-increment BCPS
+      if self.BCPI_AutoIncrement {
+        self.BCPI += 1;
+        self.BCPI &= 0x3F;
+      }
+    } else if address == 0xFF6A and self.Machine.Mode == machine.MODE_CGB {
+      self.OCPI = value & 0x3F;
+      self.OCPI_AutoIncrement = bits.Test(value, 7);
+    } else if address == 0xFF6B and self.Machine.Mode == machine.MODE_CGB {
+      *(self.OCPD + self.OCPI) = (value & ~((self.OCPI % 2) * 0x80));
+
+      // Auto-increment OCPI
+      if self.OCPI_AutoIncrement {
+        self.OCPI += 1;
+        self.OCPI &= 0x3F;
+      }
     } else {
       return false;
     }

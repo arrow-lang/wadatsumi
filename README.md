@@ -8,6 +8,16 @@
  - Prevent opposite directions on the D-Pad from being pressed simultaneously (
    doing so locks up some games like "Pocket Bomberman")
 
+ - [CGB] Implement simplified sprite priority when in CGB mode (no x-cache)
+
+ - [CGB] Background can override OAM priority
+ - [CGB] Background/Window can be told to have lower priority 100% with LCDC
+
+ - Command Line Arguments
+    - `-m gb` and `-m cgb` to select mode
+    - `--scale` / `-s` to specify the scale factor
+    - `--audio-sample-rate` to specify the audio sample rate
+
 ### Bugs
 
  - In "Wario Land (SML 3)"; smashing a block from below while crouching

@@ -87,9 +87,6 @@ implement MMU {
     self.Write(0xFF42, 0x00);
     self.Write(0xFF43, 0x00);
     self.Write(0xFF45, 0x00);
-    self.Write(0xFF47, 0xFC);
-    self.Write(0xFF48, 0xFF);
-    self.Write(0xFF49, 0xFF);
     self.Write(0xFF4A, 0x00);
     self.Write(0xFF4B, 0x00);
     self.Write(0xFFFF, 0x00);
@@ -110,13 +107,14 @@ implement MMU {
       i += 1;
     }
 
-    // TODO: Memory mappers should control that
     if address < 0x8000 {
       value = *(self.Cartridge.ROM + address);
     } else if address >= 0xC000 and address <= 0xFDFF {
       value = *(self.WRAM + (address & 0x1FFF));
     } else if address >= 0xFF80 and address <= 0xFFFE {
       value = *(self.HRAM + ((address & 0xFF) - 0x80));
+    } else {
+      libc.printf("warn: read from unhandled memory: %04X\n", address);
     }
 
     return value;
@@ -140,7 +138,7 @@ implement MMU {
     } else if address >= 0xFF80 and address <= 0xFFFE {
       *(self.HRAM + ((address & 0xFF) - 0x80)) = value;
     } else {
-      // libc.printf("warn: write to unhandled memory: %04X\n", address);
+      libc.printf("warn: write to unhandled memory: %04X\n", address);
     }
   }
 }

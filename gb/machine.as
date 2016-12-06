@@ -14,20 +14,45 @@ import "./mbc2";
 import "./mbc3";
 import "./mbc5";
 
+type MachineMode = uint8;
+
+let MODE_AUTO: MachineMode = 0;
+let MODE_GB: MachineMode = 1;
+let MODE_CGB: MachineMode = 2;
+
 struct Machine {
+  // Mode (GB / CGB)
+  Mode: MachineMode;
+
+  // Component: CPU (Central Processing)
   CPU: cpu.CPU;
+
+  // Component: GPU (Graphics Processing)
   GPU: gpu.GPU;
+
+  // Component: APU (Audio Processing)
   APU: apu.APU;
+
+  // Component: MMU (Memory Management)
   MMU: mmu.MMU;
+
+  // Component: Joypad (Controller)
   Joypad: joypad.Joypad;
+
+  // Component: Timer (DIV and TIMA)
   Timer: timer.Timer;
+
+  // Component: Cartridge
   Cartridge: cartridge.Cartridge;
+
+  // Component: Link Cable (Serial Data Transfer)
   LinkCable: linkCable.LinkCable;
 }
 
 implement Machine {
-  def New(): Self {
+  def New(mode: MachineMode): Self {
     let m: Machine;
+    m.Mode = mode;
 
     return m;
   }
@@ -41,7 +66,7 @@ implement Machine {
     self.CPU = cpu.CPU.New(this, &self.MMU);
     self.CPU.Acquire();
 
-    self.GPU = gpu.GPU.New(&self.CPU);
+    self.GPU = gpu.GPU.New(this, &self.CPU);
 
     self.APU = apu.APU.New();
 
@@ -83,6 +108,15 @@ implement Machine {
     self.Cartridge.Open(filename);
     self.Cartridge.Trace();
 
+    // If our mode is AUTO then figure out the right mode now
+    if self.Mode == MODE_AUTO {
+      if self.Cartridge.CGB != 0 {
+        self.Mode = MODE_CGB;
+      } else {
+        self.Mode = MODE_GB;
+      }
+    }
+
     if self.Cartridge.MC != 0 {
       // Push cartridge memory controller
       let mc: mmu.MemoryController;
@@ -116,7 +150,7 @@ implement Machine {
     self.Timer.Reset();
     self.CPU.Reset();
     self.GPU.Reset();
-    self.Joypad.Reset();
+    self.Joypad.Reset(self.Mode);
     self.LinkCable.Reset();
     self.APU.Reset();
     self.MMU.Reset();
