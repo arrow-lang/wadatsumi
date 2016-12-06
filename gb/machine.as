@@ -61,7 +61,7 @@ implement Machine {
   def Acquire(self, this: *Machine) {
     self.Cartridge = cartridge.Cartridge.New();
 
-    self.MMU = mmu.MMU.New(&self.Cartridge);
+    self.MMU = mmu.MMU.New(this, &self.Cartridge);
 
     self.CPU = cpu.CPU.New(this, &self.MMU);
     self.CPU.Acquire();

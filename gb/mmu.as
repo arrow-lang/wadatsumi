@@ -2,6 +2,7 @@ import "libc";
 import "vec";
 
 import "./cartridge";
+import "./machine";
 
 struct MemoryController {
   Read: (*MemoryController, uint16, *uint8) -> bool;
@@ -15,6 +16,8 @@ struct MemoryController {
 }
 
 struct MMU {
+  Machine: *machine.Machine;
+
   /// Controllers (array)
   Controllers: vec.Vector<MemoryController>;
 
@@ -38,8 +41,9 @@ struct MMU {
 }
 
 implement MMU {
-  def New(cart: *cartridge.Cartridge): Self {
+  def New(machine_: *machine.Machine, cart: *cartridge.Cartridge): Self {
     let m: Self;
+    m.Machine = machine_;
     m.Cartridge = cart;
     m.WRAM = libc.malloc(0x8000);
     m.HRAM = libc.malloc(127);
@@ -122,7 +126,7 @@ implement MMU {
       }
 
       value = *(self.WRAM + offset);
-    } else if address == 0xFF70 {
+    } else if address == 0xFF70 and self.Machine.Mode == machine.MODE_CGB {
       value = (self.SVBK | 0b1111_1000);
     } else if address >= 0xFF80 and address <= 0xFFFE {
       value = *(self.HRAM + ((address & 0xFF) - 0x80));
@@ -154,7 +158,7 @@ implement MMU {
       }
 
       *(self.WRAM + offset) = value;
-    } else if address == 0xFF70 {
+    } else if address == 0xFF70 and self.Machine.Mode == machine.MODE_CGB {
       self.SVBK = value & 0b111;
       if self.SVBK == 0 { self.SVBK += 1; }
     } else if address >= 0xFF80 and address <= 0xFFFE {
