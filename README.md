@@ -13,6 +13,10 @@
  - [CGB] Background can override OAM priority
  - [CGB] Background/Window can be told to have lower priority 100% with LCDC
 
+ - [CGB] HDMA
+
+ - DMA should take actual CPU time
+
  - Command Line Arguments
     - `-m gb` and `-m cgb` to select mode
     - `--scale` / `-s` to specify the scale factor

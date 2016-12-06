@@ -21,8 +21,13 @@ struct MMU {
   /// Cartridge (ROM)
   Cartridge: *cartridge.Cartridge;
 
-  /// Work RAM (WRAM): C000-DFFF and E000-FDFF (8 KiB)
+  /// Work RAM (WRAM): C000-DFFF and E000-FDFF (8 KiB - 32 KiB)
+  ///   Bank 0 is always available in memory at C000-CFFF,
+  ///   Bank 1-7 can be selected into the address space at D000-DFFF.
   WRAM: *uint8;
+
+  /// FF70 - SVBK - CGB Mode Only - WRAM Bank (0-7)
+  SVBK: uint8;
 
   /// High RAM (HRAM): FF80-FFFE (127 B)
   HRAM: *uint8;
@@ -36,7 +41,7 @@ implement MMU {
   def New(cart: *cartridge.Cartridge): Self {
     let m: Self;
     m.Cartridge = cart;
-    m.WRAM = libc.malloc(0x2000);
+    m.WRAM = libc.malloc(0x8000);
     m.HRAM = libc.malloc(127);
     m.Controllers = vec.Vector<MemoryController>.New();
 
@@ -59,11 +64,11 @@ implement MMU {
   }
 
   def Reset(self) {
-    libc.memset(self.WRAM, 0, 0x2000);
+    libc.memset(self.WRAM, 0, 0x8000);
     libc.memset(self.HRAM, 0, 127);
 
-    // TODO: Move to a linkCable.as module
-    self.SB = 0;
+    // SVBK cannot be 0; so its first value is 1
+    self.SVBK = 1;
 
     // Reset a ton of cross-component registers to DMG initial values
     self.Write(0xFF05, 0x00);
@@ -110,7 +115,15 @@ implement MMU {
     if address < 0x8000 {
       value = *(self.Cartridge.ROM + address);
     } else if address >= 0xC000 and address <= 0xFDFF {
-      value = *(self.WRAM + (address & 0x1FFF));
+      let offset = (address & 0x1FFF);
+      if address > 0xCFFF {
+        // Bank <1-7>
+        offset += (uint16(self.SVBK - 1) * 0x1000);
+      }
+
+      value = *(self.WRAM + offset);
+    } else if address == 0xFF70 {
+      value = (self.SVBK | 0b1111_1000);
     } else if address >= 0xFF80 and address <= 0xFFFE {
       value = *(self.HRAM + ((address & 0xFF) - 0x80));
     } else {
@@ -134,7 +147,16 @@ implement MMU {
     }
 
     if address >= 0xC000 and address <= 0xFDFF {
-      *(self.WRAM + (address & 0x1FFF)) = value;
+      let offset = (address & 0x1FFF);
+      if address > 0xCFFF {
+        // Bank <1-7>
+        offset += (uint16(self.SVBK - 1) * 0x1000);
+      }
+
+      *(self.WRAM + offset) = value;
+    } else if address == 0xFF70 {
+      self.SVBK = value & 0b111;
+      if self.SVBK == 0 { self.SVBK += 1; }
     } else if address >= 0xFF80 and address <= 0xFFFE {
       *(self.HRAM + ((address & 0xFF) - 0x80)) = value;
     } else {

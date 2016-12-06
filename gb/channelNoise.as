@@ -132,7 +132,7 @@ implement ChannelNoise {
     return int16(self.Volume if bit else 0);
   }
 
-  // FF20 - NR41 - Channel 4 Sound Length (W)
+  // FF20 - NR41 - Channel 4 Sound Length (R/W)
   //    Bit 5-0 - Sound length data (t1: 0-63)
 
   // FF21 - NR42 - Channel 4 Volume Envelope (R/W)
@@ -152,7 +152,9 @@ implement ChannelNoise {
   //              (1=Stop output when length in NR41 expires)
 
   def Read(self, address: uint16, ptr: *uint8): bool {
-    *ptr = if address == 0xFF21 {
+    *ptr = if address == 0xFF20 {
+      (self.Length | 0b1100_0000);
+    } else if address == 0xFF21 {
       (
         (self.VolumeInitial << 4) |
         bits.Bit(self.VolumeEnvelopeDirection, 3) |
