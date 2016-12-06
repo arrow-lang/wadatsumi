@@ -1,5 +1,5 @@
 # Wadatsumi
-> Multi-system emulator written in Arrow.
+> Gameboy (DMG) emulator written in Arrow.
 
 ### Tasks
 
