@@ -13,4 +13,6 @@
 
  - In "Dragon Warrior I and II"; saving to the journal seems to indeed write to
    the journal but only the existence of said journal. No progress beyond name
-   selection is remembered.
+   selection is remembered. "Pokemon Pinball" also doesn't appear to save
+   correctly. Both games are for the Color Gameboy but are supposed to be
+   GB-compatible.
