@@ -19,7 +19,7 @@ struct Sample {
 }
 
 // TODO: Make configurable
-let BUFFER_SIZE = 1024;
+let BUFFER_SIZE: uint32 = 1024;
 
 // TODO: Make configurable
 let SAMPLE_RATE = 96000;
@@ -48,7 +48,11 @@ struct APU {
   //    Bit 6-4 - SO2 output level (volume)  (0-7)
   //    Bit 3   - Output Vin to SO1 terminal (1=Enable)
   //    Bit 2-0 - SO1 output level (volume)  (0-7)
+  // L = SO2
+  // R = SO1
+  VinL: bool;
   VolumeL: uint8;
+  VinR: bool;
   VolumeR: uint8;
 
   // FF25 - NR51 - Selection of Sound output terminal (R/W)
@@ -86,12 +90,14 @@ implement APU {
     component.Buffer = libc.malloc(uint64(BUFFER_SIZE * 4)) as *Sample;
     component.BufferIndex = 0;
 
-    component.Channel1 = channelSquare.ChannelSquare.New(1);
-    component.Channel2 = channelSquare.ChannelSquare.New(2);
-    component.Channel3 = channelWave.ChannelWave.New();
-    component.Channel4 = channelNoise.ChannelNoise.New();
-
     return component;
+  }
+
+  def Acquire(self, this: *APU) {
+    self.Channel1 = channelSquare.ChannelSquare.New(1, this);
+    self.Channel2 = channelSquare.ChannelSquare.New(2, this);
+    self.Channel3 = channelWave.ChannelWave.New(this);
+    self.Channel4 = channelNoise.ChannelNoise.New(this);
   }
 
   def Release(self) {
@@ -100,6 +106,9 @@ implement APU {
   }
 
   def Reset(self) {
+    self.Enable = false;
+
+    libc.memset(self.Buffer as *uint8, 0, uint64(BUFFER_SIZE) * 4);
     self.BufferIndex = 0;
 
     self.Channel1.Reset();
@@ -107,9 +116,26 @@ implement APU {
     self.Channel3.Reset();
     self.Channel4.Reset();
 
-    self.SequencerTimer = 0;
+    self.VinL = false;
+    self.VinR = false;
+
+    self.SequencerTimer = 8192;
     self.SequencerStep = 0;
     self.SampleTimer = 4194304 / 48000;
+
+    self.Channel4REnable = false;
+    self.Channel3REnable = false;
+    self.Channel2REnable = false;
+    self.Channel1REnable = false;
+    self.Channel4LEnable = false;
+    self.Channel3LEnable = false;
+    self.Channel2LEnable = false;
+    self.Channel1LEnable = false;
+
+    self.VinL = false;
+    self.VolumeL = 0;
+    self.VinR = false;
+    self.VolumeR = 0;
   }
 
   def Read(self, address: uint16, ptr: *uint8): bool {
@@ -119,20 +145,25 @@ implement APU {
     if self.Channel4.Read(address, ptr) { return true; }
 
     *ptr = if address == 0xFF24 {
-      ((self.VolumeR << 4) | (self.VolumeL));
+      (
+        bits.Bit(self.VinL, 7) |
+        (self.VolumeL << 4) |
+        bits.Bit(self.VinR, 3) |
+        (self.VolumeR)
+      );
     } else if address == 0xFF25 {
       (
-        bits.Bit(self.Channel4REnable, 7) |
-        bits.Bit(self.Channel3REnable, 6) |
-        bits.Bit(self.Channel2REnable, 5) |
-        bits.Bit(self.Channel1REnable, 4) |
-        bits.Bit(self.Channel4LEnable, 3) |
-        bits.Bit(self.Channel3LEnable, 2) |
-        bits.Bit(self.Channel2LEnable, 1) |
-        bits.Bit(self.Channel1LEnable, 0)
+        bits.Bit(self.Channel4LEnable, 7) |
+        bits.Bit(self.Channel3LEnable, 6) |
+        bits.Bit(self.Channel2LEnable, 5) |
+        bits.Bit(self.Channel1LEnable, 4) |
+        bits.Bit(self.Channel4REnable, 3) |
+        bits.Bit(self.Channel3REnable, 2) |
+        bits.Bit(self.Channel2REnable, 1) |
+        bits.Bit(self.Channel1REnable, 0)
       );
     } else if address == 0xFF26 {
-      (
+      *ptr = (
         bits.Bit(self.Enable, 7) |
         bits.Bit(true, 6) |
         bits.Bit(true, 5) |
@@ -142,6 +173,8 @@ implement APU {
         bits.Bit(self.Channel2.Enable, 1) |
         bits.Bit(self.Channel1.Enable, 0)
       );
+
+      return true;
     } else {
       return false;
     };
@@ -155,20 +188,45 @@ implement APU {
     if self.Channel3.Write(address, value) { return true; }
     if self.Channel4.Write(address, value) { return true; }
 
+    if address == 0xFF26 {
+      if self.Enable and not bits.Test(value, 7) {
+        // Disabling sound soft-resets the APU
+        self.Reset();
+      } else if not self.Enable and bits.Test(value, 7) {
+        self.Enable = true;
+
+        // When powered on, the frame sequencer is reset so that the
+        // next step will be 0
+        self.SequencerStep = 0;
+
+        // The square duty units are reset to the first step of the waveform,
+        self.Channel1.DutyPosition = 0;
+        self.Channel2.DutyPosition = 0;
+
+        // and the wave channel's sample buffer is reset to 0.
+        self.Channel3.Buffer = 0;
+      }
+
+      return true;
+    }
+
+    // If master is disabled; leave unhandled
+    if not self.Enable { return false; }
+
     if address == 0xFF24 {
-      self.VolumeR = (value >> 4) & 0b111;
-      self.VolumeL = value & 0b111;
+      self.VinL = bits.Test(value, 7);
+      self.VolumeL = (value >> 4) & 0b111;
+      self.VinR = bits.Test(value, 3);
+      self.VolumeR = value & 0b111;
     } else if address == 0xFF25 {
-      self.Channel4REnable = bits.Test(value, 7);
-      self.Channel3REnable = bits.Test(value, 6);
-      self.Channel2REnable = bits.Test(value, 5);
-      self.Channel1REnable = bits.Test(value, 4);
-      self.Channel4LEnable = bits.Test(value, 3);
-      self.Channel3LEnable = bits.Test(value, 2);
-      self.Channel2LEnable = bits.Test(value, 1);
-      self.Channel1LEnable = bits.Test(value, 0);
-    } else if address == 0xFF26 {
-      self.Enable = bits.Test(value, 7);
+      self.Channel4LEnable = bits.Test(value, 7);
+      self.Channel3LEnable = bits.Test(value, 6);
+      self.Channel2LEnable = bits.Test(value, 5);
+      self.Channel1LEnable = bits.Test(value, 4);
+      self.Channel4REnable = bits.Test(value, 3);
+      self.Channel3REnable = bits.Test(value, 2);
+      self.Channel2REnable = bits.Test(value, 1);
+      self.Channel1REnable = bits.Test(value, 0);
     } else {
       return false;
     }

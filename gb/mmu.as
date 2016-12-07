@@ -131,7 +131,7 @@ implement MMU {
     } else if address >= 0xFF80 and address <= 0xFFFE {
       value = *(self.HRAM + ((address & 0xFF) - 0x80));
     } else {
-      libc.printf("warn: read from unhandled memory: %04X\n", address);
+      // libc.printf("warn: read from unhandled memory: %04X\n", address);
     }
 
     return value;
@@ -164,7 +164,7 @@ implement MMU {
     } else if address >= 0xFF80 and address <= 0xFFFE {
       *(self.HRAM + ((address & 0xFF) - 0x80)) = value;
     } else {
-      libc.printf("warn: write to unhandled memory: %04X\n", address);
+      // libc.printf("warn: write to unhandled memory: %04X\n", address);
     }
   }
 }

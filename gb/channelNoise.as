@@ -1,8 +1,11 @@
 import "libc";
+import "./apu";
 import "./bits";
 
 // Channel 4 — Noise
 struct ChannelNoise {
+  APU: *apu.APU;
+
   // On/Off
   Enable: bool;
 
@@ -36,8 +39,9 @@ struct ChannelNoise {
 }
 
 implement ChannelNoise {
-  def New(): Self {
+  def New(apu_: *apu.APU): Self {
     let ch: ChannelNoise;
+    ch.APU = apu_;
 
     return ch;
   }
@@ -132,7 +136,7 @@ implement ChannelNoise {
     return int16(self.Volume if bit else 0);
   }
 
-  // FF20 - NR41 - Channel 4 Sound Length (R/W)
+  // FF20 - NR41 - Channel 4 Sound Length (R)
   //    Bit 5-0 - Sound length data (t1: 0-63)
 
   // FF21 - NR42 - Channel 4 Volume Envelope (R/W)
@@ -152,9 +156,10 @@ implement ChannelNoise {
   //              (1=Stop output when length in NR41 expires)
 
   def Read(self, address: uint16, ptr: *uint8): bool {
-    *ptr = if address == 0xFF20 {
-      (self.Length | 0b1100_0000);
-    } else if address == 0xFF21 {
+    // Check if we are at the right channel
+    if (address < 0xFF20 or address > 0xFF23) { return false; }
+
+    *ptr = if address == 0xFF21 {
       (
         (self.VolumeInitial << 4) |
         bits.Bit(self.VolumeEnvelopeDirection, 3) |
@@ -176,6 +181,12 @@ implement ChannelNoise {
   }
 
   def Write(self, address: uint16, value: uint8): bool {
+    // Check if we are at the right channel
+    if (address < 0xFF20 or address > 0xFF23) { return false; }
+
+    // If master is disabled; leave unhandled
+    if not self.APU.Enable { return false; }
+
     if address == 0xFF20 {
       self.Length = 64 - (value & 0b1_1111);
     } else if address == 0xFF21 {

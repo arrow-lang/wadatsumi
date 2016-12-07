@@ -1,8 +1,11 @@
 import "libc";
+import "./apu";
 import "./bits";
 
 // Channel 3 — Wave
 struct ChannelWave {
+  APU: *apu.APU;
+
   // Internal On/Off for this channel
   Enable: bool;
 
@@ -40,9 +43,31 @@ struct ChannelWave {
 }
 
 implement ChannelWave {
-  def New(): Self {
+  def New(apu_: *apu.APU): Self {
     let ch: ChannelWave;
+    ch.APU = apu_;
+
     ch.RAM = libc.malloc(16);
+
+    // On initial power, the WAVE ram has a particular pattern
+    // according to model
+    // Reset does NOT re-set this
+    *(ch.RAM + 0x0) = 0x84;
+    *(ch.RAM + 0x1) = 0x40;
+    *(ch.RAM + 0x2) = 0x43;
+    *(ch.RAM + 0x3) = 0xAA;
+    *(ch.RAM + 0x4) = 0x2D;
+    *(ch.RAM + 0x5) = 0x78;
+    *(ch.RAM + 0x6) = 0x92;
+    *(ch.RAM + 0x7) = 0x3C;
+    *(ch.RAM + 0x8) = 0x60;
+    *(ch.RAM + 0x9) = 0x59;
+    *(ch.RAM + 0xA) = 0x59;
+    *(ch.RAM + 0xB) = 0xB0;
+    *(ch.RAM + 0xC) = 0x34;
+    *(ch.RAM + 0xD) = 0xB8;
+    *(ch.RAM + 0xE) = 0x2E;
+    *(ch.RAM + 0xF) = 0xDA;
 
     return ch;
   }
@@ -57,24 +82,6 @@ implement ChannelWave {
     self.Timer = 0;
     self.Frequency = 0;
     self.Buffer = 0;
-
-    // On reset, the WAVE ram has a particular pattern according to model
-    *(self.RAM + 0x0) = 0x84;
-    *(self.RAM + 0x1) = 0x40;
-    *(self.RAM + 0x2) = 0x43;
-    *(self.RAM + 0x3) = 0xAA;
-    *(self.RAM + 0x4) = 0x2D;
-    *(self.RAM + 0x5) = 0x78;
-    *(self.RAM + 0x6) = 0x92;
-    *(self.RAM + 0x7) = 0x3C;
-    *(self.RAM + 0x8) = 0x60;
-    *(self.RAM + 0x9) = 0x59;
-    *(self.RAM + 0xA) = 0x59;
-    *(self.RAM + 0xB) = 0xB0;
-    *(self.RAM + 0xC) = 0x34;
-    *(self.RAM + 0xD) = 0xB8;
-    *(self.RAM + 0xE) = 0x2E;
-    *(self.RAM + 0xF) = 0xDA;
   }
 
   def Release(self) {
@@ -150,14 +157,22 @@ implement ChannelWave {
   // Contents - Waveform storage for arbitrary sound data
 
   def Read(self, address: uint16, ptr: *uint8): bool {
+    // WAVE RAM is not affected by master on/off
+    if address >= 0xFF30 and address <= 0xFF3F {
+      *ptr = *(self.RAM + (address - 0xFF30));
+
+      return true;
+    }
+
+    // Check if we are at the right channel
+    if (address < 0xFF1A or address > 0xFF1E) { return false; }
+
     *ptr = if address == 0xFF1A {
       (bits.Bit(self.DACEnable, 7) | 0b0111_1111);
     } else if address == 0xFF1C {
       ((self.Volume << 5) | 0b1001_1111);
     } else if address == 0xFF1E {
       (bits.Bit(self.LengthEnable, 6) | 0b1011_1111);
-    } else if address >= 0xFF30 and address <= 0xFF3F {
-      *(self.RAM + (address - 0xFF30));
     } else {
       return false;
     };
@@ -166,12 +181,25 @@ implement ChannelWave {
   }
 
   def Write(self, address: uint16, value: uint8): bool {
+    // WAVE RAM is not affected by master on/off
+    if address >= 0xFF30 and address <= 0xFF3F {
+      *(self.RAM + (address - 0xFF30)) = value;
+
+      return true;
+    }
+
+    // Check if we are at the right channel
+    if (address < 0xFF1A or address > 0xFF1E) { return false; }
+
+    // If master is disabled; leave unhandled
+    if not self.APU.Enable { return false; }
+
     if address == 0xFF1A {
       self.DACEnable = bits.Test(value, 7);
     } else if address == 0xFF1B {
       self.Length = 256 - value;
     } else if address == 0xFF1C {
-      self.Volume = ((value & 0b0110_0000) >> 6);
+      self.Volume = ((value & 0b0110_0000) >> 5);
     } else if address == 0xFF1D {
       self.Frequency = (self.Frequency & ~0xFF) | uint16(value);
     } else if address == 0xFF1E {
@@ -181,8 +209,6 @@ implement ChannelWave {
       if bits.Test(value, 7) {
         self.Trigger();
       }
-    } else if address >= 0xFF30 and address <= 0xFF3F {
-      *(self.RAM + (address - 0xFF30)) = value;
     } else {
       return false;
     }

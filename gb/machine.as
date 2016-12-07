@@ -69,6 +69,7 @@ implement Machine {
     self.GPU = gpu.GPU.New(this, &self.CPU);
 
     self.APU = apu.APU.New();
+    self.APU.Acquire(&self.APU);
 
     self.Timer = timer.Timer.New(&self.CPU);
 
@@ -110,7 +111,7 @@ implement Machine {
 
     // If our mode is AUTO then figure out the right mode now
     if self.Mode == MODE_AUTO {
-      if self.Cartridge.CGB != 0 {
+      if self.Cartridge.CGB == 0x80 or self.Cartridge.CGB == 0xC0 {
         self.Mode = MODE_CGB;
       } else {
         self.Mode = MODE_GB;

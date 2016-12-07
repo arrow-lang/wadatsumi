@@ -1,8 +1,11 @@
 import "./bits";
+import "./apu";
 import "libc";
 
 // Channel 1/2 — Tone & Sweep
 struct ChannelSquare {
+  APU: *apu.APU;
+
   // Channel Index — 1 or 2
   ChannelIndex: uint8;
 
@@ -82,9 +85,10 @@ struct ChannelSquare {
 }
 
 implement ChannelSquare {
-  def New(channelIndex: uint8): Self {
+  def New(channelIndex: uint8, apu_: *apu.APU): Self {
     let ch: ChannelSquare;
     ch.ChannelIndex = channelIndex;
+    ch.APU = apu_;
 
     return ch;
   }
@@ -250,7 +254,7 @@ implement ChannelSquare {
     }
 
     let r = (address & 0xF) % 5;
-    *ptr = if r == 0 {
+    *ptr = if (r == 0 and self.ChannelIndex == 1) {
       (
         bits.Bit(true, 7) |
         (self.SweepPeriod << 4) |
@@ -283,8 +287,11 @@ implement ChannelSquare {
       return false;
     }
 
+    // If master is disabled; leave unhandled
+    if not self.APU.Enable { return false; }
+
     let r = (address & 0xF) % 5;
-    if r == 0 {
+    if (r == 0 and self.ChannelIndex == 1) {
       self.SweepPeriod = (value & 0b0111_0000) >> 4;
       self.SweepDirection = bits.Test(value, 3);
       self.SweepShift = (value & 0b111);
