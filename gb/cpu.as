@@ -226,11 +226,8 @@ implement CPU {
         // Disable IME
         self.IME = 0;
 
-        // If coming back from halt; take 1 more cycle
-        if self.HALT == 1 {
-          self.HALT = 0;
-          self.Tick();
-        }
+        // Come back from HALT
+        if self.HALT == 1 { self.HALT = 0; }
       }
 
       // Re-enable IME from pending

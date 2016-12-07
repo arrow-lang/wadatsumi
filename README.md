@@ -41,9 +41,6 @@
  - In "Pokemon Trading Card Game"; I get an immediate white screen and then
    it seems to freeze
 
- - In "Donkey Kong"; if you hold <START> while the game boots it tries to
-   execute opcode $FD (illegal)
-
  - In "Donkey Kong"; there are painful graphical glitches between levels
 
  - In "Donkey Kong"; there are just a ton of small glitches

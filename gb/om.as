@@ -68,8 +68,8 @@ def read16(c: *cpu.CPU, address: uint16): uint16 {
 
 // Write 16-bit
 def write16(c: *cpu.CPU, address: uint16, value: uint16) {
-  write8(c, address + 0, uint8(value & 0xFF));
   write8(c, address + 1, uint8(value >> 8));
+  write8(c, address + 0, uint8(value & 0xFF));
 }
 
 // Write 8-bit
@@ -228,8 +228,9 @@ def jr(c: *cpu.CPU, n: uint8) {
 
 // Call
 def call(c: *cpu.CPU, address: uint16) {
+  c.Tick();
   push16(c, &c.PC);
-  jp(c, address, true);
+  jp(c, address, false);
 }
 
 // Return
