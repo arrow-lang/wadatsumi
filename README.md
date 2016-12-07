@@ -19,8 +19,6 @@
 
  - [CGB] HDMA
 
- - DMA should take actual CPU time
-
  - Command Line Arguments
     - `-m gb` and `-m cgb` to select mode
     - `--scale` / `-s` to specify the scale factor
