@@ -5,6 +5,8 @@
 
  - BIOS
 
+ - Sprite / Mode-3 Timing
+
  - Reduce code duplication among memory controllers
 
  - Prevent opposite directions on the D-Pad from being pressed simultaneously (
