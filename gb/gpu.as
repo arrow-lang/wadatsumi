@@ -744,10 +744,14 @@ implement GPU {
   def Write(self, address: uint16, value: uint8): bool {
     if address >= 0x8000 and address <= 0x9FFF {
       // VRAM cannot be written during mode-3 (?)
+      // if self.Mode != 3 {
       *(self.VRAM + (0x2000 * uint16(self.VBK)) + (address & 0x1FFF)) = value;
+      // }
     } else if address >= 0xFE00 and address <= 0xFE9F {
       // OAM cannot be written during mode-2 or mode-3 (?)
+      // if self.Mode != 3 and self.Mode != 2 {
       *(self.OAM + (address - 0xFE00)) = value;
+      // }
     } else if address == 0xFF40 {
       self.LCDEnable = bits.Test(value, 7);
       self.WindowTileMapSelect = bits.Test(value, 6);

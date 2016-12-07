@@ -296,15 +296,20 @@ implement Cartridge {
     self.Title = (self.ROM + 0x0134) as str;
 
     // Nul out any characters in the title that are "strange"
-    let i = 0;
-    while i < 16 {
-      let c = *(self.Title + i);
-      if c < 0x20 or c >= 0x7E {
-        *(self.Title + i) = 0x0;
-      }
+    // let i = 0;
+    // while i < 16 {
+    //   let c = *(self.Title + i);
+    //   if c < 0x20 or c >= 0x7E {
+    //     *(self.Title + i) = 0x0;
+    //   }
+    //
+    //   i += 1;
+    // }
 
-      i += 1;
-    }
+    // Write the 256-B BIOS to ROM
+    // stream = libc.fopen("/Users/mehcode/Documents/[BIOS] Nintendo Game Boy.gb", "rb");
+    // libc.fread(self.ROM, 1, 256, stream);
+    // libc.fclose(stream);
   }
 
   def ReadExternalSAV(self) {
