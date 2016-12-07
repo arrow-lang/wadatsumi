@@ -51,6 +51,21 @@ struct CPU {
   /// Reset before each operation
   Cycles: uint32;
 
+  /// [OAM DMA] Start Address for the current DMA
+  OAM_DMA_Start: uint16;
+
+  /// [OAM DMA] Start Address of the next/pending DMA
+  OAM_DMA_NextStart: uint16;
+
+  /// [OAM DMA] Delay Timer until the next OMA DMA starts
+  OAM_DMA_DelayTimer: uint8;
+
+  /// [OAM DMA] Current index into the OAM DMA
+  OAM_DMA_Index: uint16;
+
+  /// [OAM DMA] Timer (in M-Cycles) of how long we have left in OAM DMA
+  OAM_DMA_Timer: uint8;
+
   /// Memory management unit (reference)
   MMU: *mmu.MMU;
 
@@ -110,11 +125,41 @@ implement CPU {
 
     self.IE = 0x01;
     self.IF = 0x01;
+
+    self.OAM_DMA_Start = 0;
+    self.OAM_DMA_Index = 0;
+    self.OAM_DMA_Timer = 0;
+    self.OAM_DMA_NextStart = 0;
+    self.OAM_DMA_DelayTimer = 0;
   }
 
   /// Tick
   /// Steps the machine and records the M-cycle
   def Tick(self) {
+    // Run next iteration of OMA DMA (if active)
+    if self.OAM_DMA_Timer > 0 {
+      // Each tick does a single byte memory copy
+      self.MMU.Write(0xFE00 + self.OAM_DMA_Index,
+        self.MMU.Read(self.OAM_DMA_Start + self.OAM_DMA_Index));
+
+      self.OAM_DMA_Index += 1;
+      self.OAM_DMA_Timer -= 1;
+    }
+
+    // When OAM DMA starts a delay timer is set to 2; the tick with the memory
+    // write that starts DMA and the tick just after are wait cycles before
+    // the actual DMA starts. If there was an existing DMA running; that DMA
+    // does not stop until the next one starts
+    if self.OAM_DMA_DelayTimer > 0 {
+      self.OAM_DMA_DelayTimer -= 1;
+      if self.OAM_DMA_DelayTimer == 0 {
+        self.OAM_DMA_Timer = 160;
+        self.OAM_DMA_Index = 0;
+        self.OAM_DMA_Start = self.OAM_DMA_NextStart;
+      }
+    }
+
+    // Continue on to tick the machien state
     self.Machine.Tick();
     self.Cycles += 1;
   }
@@ -143,8 +188,9 @@ implement CPU {
       }
 
       // Decide if we should service interrupts
+      // No interrupts are allowed during OAM DMA
       let irq = self.IE & self.IF;
-      if self.IME == 1 and irq > 0 {
+      if self.OAM_DMA_Timer == 0 and self.IME == 1 and irq > 0 {
         // Service interrupt (takes 5 cycles)
 
         // Wait 2 cycles
@@ -254,19 +300,8 @@ implement CPU {
       self.IF = value & ~0xE0;
     } else if address == 0xFF46 {
       // DMA - DMA Transfer and Start Address (W)
-
-      // FIXME: This is supposed to take 160 × 4 + 4 cycles to complete
-      //        4 cycles to begin with 4 cycles per write/read (transfer)
-
-      let src = uint16(value) << 8;
-      if src >= 0x8000 and src < 0xE000 {
-        let i: uint16 = 0;
-        while i < 0xA0 {
-          self.MMU.Write(0xFE00 + i, self.MMU.Read(src + i));
-
-          i += 1;
-        }
-      }
+      self.OAM_DMA_NextStart = uint16(value) << 8;
+      self.OAM_DMA_DelayTimer = 2;
     } else {
       return false;
     }
