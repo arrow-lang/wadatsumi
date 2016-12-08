@@ -1,6 +1,7 @@
 import "libc";
 import "std";
 
+import "./bits";
 import "./mmu";
 import "./machine";
 import "./op";
@@ -71,6 +72,23 @@ struct CPU {
   /// [OAM DMA] Timer (in M-Cycles) of how long we have left in OAM DMA
   OAM_DMA_Timer: uint8;
 
+  /// [HDMA] FF51 - HDMA1 - CGB Mode Only - New DMA Source, High
+  /// [HDMA] FF52 - HDMA2 - CGB Mode Only - New DMA Source, Low
+  HDMA_Source: uint16;
+
+  /// [HDMA] FF53 - HDMA3 - CGB Mode Only - New DMA Destination, High
+  /// [HDMA] FF54 - HDMA4 - CGB Mode Only - New DMA Destination, Low
+  HDMA_Destination: uint16;
+
+  /// [HDMA] FF55 - HDMA5 - CGB Mode Only - New DMA Length/Mode/Start
+  ///   > Reading from Register FF55 returns the remaining length
+  HDMA_Length: int16;
+  ///   1 = H-Blank DMA / 0 = General DMA
+  HDMA_Mode: bool;
+
+  /// [HDMA] Current Index of the HDMA operation
+  HDMA_Index: uint16;
+
   /// Memory management unit (reference)
   MMU: *mmu.MMU;
 
@@ -136,6 +154,12 @@ implement CPU {
     self.OAM_DMA_Timer = 0;
     self.OAM_DMA_NextStart = 0;
     self.OAM_DMA_DelayTimer = 0;
+
+    self.HDMA_Source = 0;
+    self.HDMA_Destination = 0;
+    self.HDMA_Length = 0;
+    self.HDMA_Mode = false;
+    self.HDMA_Index = 0;
   }
 
   /// Tick
@@ -329,11 +353,64 @@ implement CPU {
       // DMA - DMA Transfer and Start Address (W)
       self.OAM_DMA_NextStart = uint16(value) << 8;
       self.OAM_DMA_DelayTimer = 2;
+    } else if address == 0xFF51 and not self.HDMA_Mode {
+      self.HDMA_Source = (self.HDMA_Source & ~0xFF00) | (uint16(value) << 8);
+    } else if address == 0xFF52 and not self.HDMA_Mode {
+      self.HDMA_Source = (self.HDMA_Source & ~0xFF) | uint16(value);
+      self.HDMA_Source &= ~0xF;
+    } else if address == 0xFF53 and not self.HDMA_Mode {
+      // FIXME: the upper 3 bits are ignored either (destination is always in VRAM).
+      self.HDMA_Destination = (
+        (self.HDMA_Destination & ~0xFF00) | (uint16(value) << 8));
+    } else if address == 0xFF54 and not self.HDMA_Mode {
+      self.HDMA_Destination = (self.HDMA_Destination & ~0xFF) | uint16(value);
+      self.HDMA_Destination &= ~0xF;
+    } else if address == 0xFF55 {
+      self.HDMA_Index = 0;
+      self.HDMA_Length = int16(value & 0x7F);
+
+      if bits.Test(value, 7) {
+        // Start a H-Blank DMA (ignored if already in one)
+        if not self.HDMA_Mode {
+          self.HDMA_Mode = true;
+        }
+      } else {
+        if self.HDMA_Mode {
+          // Stop H-Blank DMA
+          self.HDMA_Mode = false;
+        } else {
+          // Do G-DMA
+          while self.HDMA_Length >= 0 {
+            self.TickHDMA();
+            self.HDMA_Length -= 1;
+          }
+        }
+      }
     } else {
       return false;
     }
 
     return true;
+  }
+
+  def TickHDMA(self) {
+    // FIXME: This is apparently working only sometimes.
+    //        There is some obscure behavior I'm missing
+
+    let i = 0;
+    while i < 0x10 {
+      self.MMU.Write(
+        self.HDMA_Destination + self.HDMA_Index,
+        self.MMU.Read(
+          self.HDMA_Source + self.HDMA_Index));
+
+      if i % 8 == 1 {
+        self.Tick();
+      }
+
+      self.HDMA_Index += 1;
+      i += 1;
+    }
   }
 
   def AsMemoryController(self, this: *CPU): mmu.MemoryController {

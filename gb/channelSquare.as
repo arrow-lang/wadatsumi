@@ -287,8 +287,8 @@ implement ChannelSquare {
       return false;
     }
 
-    // If master is disabled; leave unhandled
-    if not self.APU.Enable { return false; }
+    // If master is disabled; ignore
+    if not self.APU.Enable { return true; }
 
     let r = (address & 0xF) % 5;
     if (r == 0 and self.ChannelIndex == 1) {

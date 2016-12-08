@@ -169,6 +169,9 @@ implement ChannelWave {
 
     *ptr = if address == 0xFF1A {
       (bits.Bit(self.DACEnable, 7) | 0b0111_1111);
+    } else if address == 0xFF1B {
+      // FIXME: I have no idea if this supposed to be readable or not
+      uint8((int16(self.Length) - 256) * -1);
     } else if address == 0xFF1C {
       ((self.Volume << 5) | 0b1001_1111);
     } else if address == 0xFF1E {
@@ -191,8 +194,8 @@ implement ChannelWave {
     // Check if we are at the right channel
     if (address < 0xFF1A or address > 0xFF1E) { return false; }
 
-    // If master is disabled; leave unhandled
-    if not self.APU.Enable { return false; }
+    // If master is disabled; ignore
+    if not self.APU.Enable { return true; }
 
     if address == 0xFF1A {
       self.DACEnable = bits.Test(value, 7);

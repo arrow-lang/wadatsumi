@@ -184,8 +184,8 @@ implement ChannelNoise {
     // Check if we are at the right channel
     if (address < 0xFF20 or address > 0xFF23) { return false; }
 
-    // If master is disabled; leave unhandled
-    if not self.APU.Enable { return false; }
+    // If master is disabled; ignore
+    if not self.APU.Enable { return true; }
 
     if address == 0xFF20 {
       self.Length = 64 - (value & 0b1_1111);
