@@ -373,6 +373,9 @@ implement CPU {
         // Start a H-Blank DMA (ignored if already in one)
         if not self.HDMA_Mode {
           self.HDMA_Mode = true;
+
+          libc.printf("error: H-Blank DMA unsupported\n");
+          libc.exit(-1);
         }
       } else {
         if self.HDMA_Mode {
@@ -394,9 +397,6 @@ implement CPU {
   }
 
   def TickHDMA(self) {
-    // FIXME: This is apparently working only sometimes.
-    //        There is some obscure behavior I'm missing
-
     let i = 0;
     while i < 0x10 {
       self.MMU.Write(

@@ -269,7 +269,8 @@ implement Cartridge {
     } else if self.Type == 0xFD {  // BANDAI TAMA5
       self.MC = BANDAI_TAMA5;
     } else if self.Type == 0xFE {  // HuC3
-      self.MC = HuC3;
+      // FIXME: No idea if this is correct or not
+      self.MC = MBC3;
     } else if self.Type == 0xFF {  // HuC1+RAM+BATTERY
       self.MC = HuC1;
       self.HasExternalRAM = true;
