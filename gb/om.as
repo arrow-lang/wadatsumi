@@ -39,12 +39,13 @@ def readNext8(c: *cpu.CPU): uint8 {
 def read8(c: *cpu.CPU, address: uint16): uint8 {
   let value = 0xFF;
 
+  c.Tick();
+
   // IF during OAM DMA; only HIRAM is accessible
   if c.OAM_DMA_Timer == 0 or (address >= 0xFF80 and address <= 0xFFFE) {
     value = c.MMU.Read(address);
   }
 
-  c.Tick();
 
   return value;
 }
@@ -59,8 +60,8 @@ def readNext16(c: *cpu.CPU): uint16 {
 
 // Read 16-bit
 def read16(c: *cpu.CPU, address: uint16): uint16 {
-  let l = read8(c, address + 0);
   let h = read8(c, address + 1);
+  let l = read8(c, address + 0);
 
   let value = uint16(l) | (uint16(h) << 8);
   return value;
@@ -74,13 +75,13 @@ def write16(c: *cpu.CPU, address: uint16, value: uint16) {
 
 // Write 8-bit
 def write8(c: *cpu.CPU, address: uint16, value: uint8) {
+  c.Tick();
+
   // IF during OAM DMA; writes are ignored unless the address
   // is 0xFF46 (OAM DMA restart) or in HIRAM
   if c.OAM_DMA_Timer == 0 or address == 0xFF46 or (address >= 0xFF80 and address <= 0xFFFE) {
     c.MMU.Write(address, value);
   }
-
-  c.Tick();
 }
 
 // Increment 8-bit

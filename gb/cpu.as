@@ -191,7 +191,7 @@ implement CPU {
       }
     }
 
-    // Continue on to tick the machien state
+    // Continue on to tick the machine state
     self.Machine.Tick();
     self.Cycles += 1;
   }
@@ -274,6 +274,10 @@ implement CPU {
       // Re-enable IME from pending
       if self.IME == -1 { self.IME = 1; }
 
+      // if self.PC == 0xFDFE {
+      //   libc.printf("Remaining DMA: %d\n", self.OAM_DMA_Timer);
+      // }
+
       // Decode/lookup next operation
       let operation = op.next(this);
 
@@ -286,6 +290,10 @@ implement CPU {
       // Print disassembly/trace
       // TODO: Make configurable from command line
       // self.Trace(operation);
+      //
+      // if self.PC == 0xFDFF {
+      //   libc.printf("Remaining DMA: %d\n", self.OAM_DMA_Timer);
+      // }
 
       // Execute
       // HACK: Taking the address of a reference (`self`) dies

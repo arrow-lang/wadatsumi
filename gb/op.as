@@ -278,7 +278,7 @@ def acquire() {
   *(table + 0xE6) = Operation.New(_E6, "AND A, $%02X", 2);
   *(table + 0xE7) = Operation.New(_E7, "RST $20", 1);
   *(table + 0xE8) = Operation.New(_E8, "ADD SP, %02X", 2);
-  *(table + 0xE9) = Operation.New(_E9, "JP (HL)", 1);
+  *(table + 0xE9) = Operation.New(_E9, "JP HL", 1);
   *(table + 0xEA) = Operation.New(_EA, "LD ($%02X%02X), A", 3);
   *(table + 0xEE) = Operation.New(_EE, "XOR A, $%02X", 2);
   *(table + 0xEF) = Operation.New(_EF, "RST $28", 1);
@@ -585,7 +585,11 @@ libc.atexit(release);
 def next(c: *cpu.CPU): Operation {
   let r: Operation;
 
-  let opcode = om.readNext8(c);
+  let opcode = c.MMU.Read(c.PC);
+  c.PC += 1;
+
+  c.Tick();
+  // let opcode = om.readNext8(c);
 
   // HACK: This really belongs in cpu.as but I can't think of a better
   //       place
@@ -595,7 +599,13 @@ def next(c: *cpu.CPU): Operation {
   }
 
   if opcode == 0xCB {
-    r = *(table_CB + om.readNext8(c));
+    // opcode = om.readNext8(c);
+    opcode = c.MMU.Read(c.PC);
+    c.PC += 1;
+
+    c.Tick();
+
+    r = *(table_CB + opcode);
   } else {
     r = *(table + opcode);
   }
@@ -1826,6 +1836,7 @@ def _DA(c: *cpu.CPU) {
 // DC nn nn — CALL C, u16 {6/3}
 def _DC(c: *cpu.CPU) {
   let address = om.readNext16(c);
+  // libc.printf("\t-> %04X\n", address);
   if om.flag_get(c, om.FLAG_C) {
     om.call(c, address);
   }
@@ -1888,7 +1899,7 @@ def _E8(c: *cpu.CPU) {
   c.SP = r;
 }
 
-// E9 — JP (HL) {1}
+// E9 — JP HL {1}
 def _E9(c: *cpu.CPU) {
   om.jp(c, c.HL, false);
 }
