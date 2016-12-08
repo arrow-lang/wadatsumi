@@ -11,6 +11,9 @@ struct CPU {
   /// 16-bit program counter
   PC: uint16;
 
+  /// Previous PC (ignoring NOPs) for detecting inf. loops
+  LastPC: uint16;
+
   /// 16-bit stack pointer
   SP: uint16;
 
@@ -271,11 +274,14 @@ implement CPU {
       // Re-enable IME from pending
       if self.IME == -1 { self.IME = 1; }
 
-      // DEBUG: Save PC (to detect inf. loop)
-      let oldPC = self.PC;
-
       // Decode/lookup next operation
       let operation = op.next(this);
+
+      // DEBUG: Ignore NOPs in inf. loop check
+      if libc.strcmp(operation.disassembly, "NOP") != 0 {
+        // DEBUG: Save PC (to detect inf. loop)
+        self.LastPC = self.PC - 1;
+      }
 
       // Print disassembly/trace
       // TODO: Make configurable from command line
@@ -287,7 +293,7 @@ implement CPU {
 
       // DEBUG: Is the PC now the same PC that we started with (
       // possible inf. loop)
-      if oldPC == self.PC and self.IME == 0 {
+      if self.LastPC == self.PC and self.IME == 0 {
         // Infinite jump with IME=0 is an infinite loop
         // Enter STOP mode to stop CPU cycling
         self.STOP = 1;

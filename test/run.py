@@ -1,13 +1,15 @@
 from __future__ import print_function
+import sys
 from os import path
 import os
+import re
 import subprocess
 from subprocess import check_call, check_output
 from glob import glob
 from tempfile import NamedTemporaryFile
 
 def get_name(filename):
-    suite_name = path.dirname(filename).replace("test/", "")
+    suite_name = path.dirname(filename).replace("test/suite/", "")
     test_name = path.basename(filename).replace(".gb", "").replace(".cgb", "")
 
     return (suite_name, test_name)
@@ -49,9 +51,6 @@ def print_result(test_name, result):
     print("{:<72s}{}{:>7s}{}".format(test_name, prefix, result, "\x1b[0m"))
 
 def print_report():
-
-    print()
-
     message = []
     if _passed:
         message.append("{} passed".format(_passed))
@@ -67,11 +66,14 @@ def print_report():
 
     message = ', '.join(message)
 
-    if not _failed:
-        print("\x1b[1;32m%s\x1b[0m" % cpad(message, sep="="))
+    if message:
+        print()
 
-    else:
-        print("\x1b[1;31m%s\x1b[0m" % cpad(message, sep="="))
+        if not _failed:
+            print("\x1b[1;32m%s\x1b[0m" % cpad(message, sep="="))
+
+        else:
+            print("\x1b[1;31m%s\x1b[0m" % cpad(message, sep="="))
 
 def run(bin_path, test_filename, expected_filename):
     with NamedTemporaryFile(suffix=".bmp", delete=False) as test_out:
@@ -110,9 +112,15 @@ def main():
     base_dir = path.dirname(__file__)
     bin_path = path.join(base_dir, "../bin/wadatsumi")
 
-    tests = find_tests(path.join(base_dir, "blargg/"))
+    pattern = sys.argv[1] if len(sys.argv) >= 2 else None
+
+    tests = find_tests(path.join(base_dir, "suite/"))
     current_suite = None
     for test in tests:
+        if pattern is not None:
+            if not re.search(pattern, test, flags=re.I):
+                continue
+
         suite_name, test_name = get_name(test)
         if current_suite != suite_name:
             if current_suite is not None:
@@ -121,7 +129,7 @@ def main():
             current_suite = suite_name
             print(cpad("%s" % suite_name))
 
-        expected_filename = test.replace("test", "test/expected").replace(
+        expected_filename = test.replace("test/suite", "test/expected").replace(
             ".gb", ".png")
 
         is_pass = run(bin_path, test, expected_filename)

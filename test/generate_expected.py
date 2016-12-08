@@ -30,7 +30,7 @@ def main():
     bin_path = path.join(base_dir, "../bin/wadatsumi")
 
     for test in argv[1:]:
-        expected_filename = test.replace("test", "test/expected").replace(
+        expected_filename = test.replace("test/suite", "test/expected").replace(
             ".gb", ".png")
 
         run(bin_path, test, expected_filename)
