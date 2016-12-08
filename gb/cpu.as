@@ -19,6 +19,11 @@ struct CPU {
   ///  +1 - ON
   IME: int8;
 
+  // STOP
+  //  0 = OFF
+  //  1 = ON
+  STOP: int8;
+
   // HALT
   //   0 - OFF
   //   1 - ON
@@ -172,6 +177,15 @@ implement CPU {
       // Reset "current" cycle count
       self.Cycles = 0;
 
+      // If during STOP ..
+      if self.STOP == 1 {
+        self.Tick();
+        cycles += self.Cycles;
+        n -= 1;
+
+        continue;
+      }
+
       // If during HALT and no pending interrupts ..
       if self.HALT == 1 {
         if (self.IE & self.IF & 0x1F) == 0 {
@@ -233,6 +247,9 @@ implement CPU {
       // Re-enable IME from pending
       if self.IME == -1 { self.IME = 1; }
 
+      // DEBUG: Save PC (to detect inf. loop)
+      let oldPC = self.PC;
+
       // Decode/lookup next operation
       let operation = op.next(this);
 
@@ -243,6 +260,19 @@ implement CPU {
       // Execute
       // HACK: Taking the address of a reference (`self`) dies
       operation.execute(this);
+
+      // DEBUG: Is the PC now the same PC that we started with (
+      // possible inf. loop)
+      if oldPC == self.PC and self.IME == 0 {
+        // Infinite jump with IME=0 is an infinite loop
+        // Enter STOP mode to stop CPU cycling
+        self.STOP = 1;
+        if not self.Machine.Test {
+          libc.printf(
+            "warn: infinite loop detected at $%02X (entering STOP mode)\n",
+            self.PC);
+        }
+      }
 
       // Increment total cycle count and let's do this again
       cycles += self.Cycles;

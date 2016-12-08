@@ -1,5 +1,6 @@
 import "std";
 import "libc";
+import "time";
 
 import "./machine";
 import "./gpu";
@@ -107,10 +108,54 @@ def render(frame: *gpu.Frame) {
 }
 
 def main(argc: int32, argv: *str) {
+
+  // Parse command line arguments (a bit)
+  // TODO: Build a real arg parse for arrow
+
+  let is_test: bool = false;
+  let test_output_filename: str;
+  let input_filename: str;
+  let selected_mode = machine.MODE_AUTO;
+
+  let i = 1;
+  while i < argc {
+    let arg = *(argv + i);
+
+    if *(arg + 0) == 0x2D and *(arg + 1) == 0x2D {
+      // Option
+      if libc.strcmp("test", arg + 2) == 0 {
+        // --test
+        // Mark test mode
+        is_test = true;
+      } else if libc.strcmp("test-output", arg + 2) == 0 {
+        // --test-output <filename>
+        i += 1;
+        test_output_filename = *(argv + i);
+      } else if libc.strcmp("mode", arg + 2) == 0 {
+        // --mode <mode>
+        i += 1;
+        let mode_str = *(argv + i);
+        if libc.strcmp("gb", mode_str) == 0 {
+          selected_mode = machine.MODE_GB;
+        } else if libc.strcmp("cgb", mode_str) == 0 {
+          selected_mode = machine.MODE_CGB;
+        }
+      }
+
+    } else {
+      // Filename (and we're out)
+      input_filename = arg;
+      break;
+    }
+
+    i += 1;
+  }
+
+
   acquire();
 
   // let s = shell.Shell.New();
-  let m = machine.Machine.New(machine.MODE_AUTO);
+  let m = machine.Machine.New(selected_mode, is_test);
 
   // HACK: Taking the address of a reference (`self`) dies
   m.Acquire(&m);
@@ -120,8 +165,11 @@ def main(argc: int32, argv: *str) {
   // m.SetOnRefresh(render, &s);
   m.SetOnRefresh(render);
 
-  m.Open(*(argv + 1));
+  m.Open(input_filename);
   m.Reset();
+
+  let n0 = time.Monotonic();
+  let inStop = false;
 
   while _running {
     // Run a chunk of instructions
@@ -145,6 +193,31 @@ def main(argc: int32, argv: *str) {
         } else {
           m.OnKeyRelease(uint32(which));
         }
+      }
+    }
+
+    if is_test {
+      if m.CPU.STOP == 1 and not inStop {
+        inStop = true;
+        n0 = time.Monotonic();
+      }
+
+      // TODO: extract this out nicer
+      let n1 = time.Monotonic();
+      let elapsed = n1.Sub(n0);
+      if elapsed.Seconds() > 20 or (inStop and elapsed.Seconds() > 1) {
+        // Create surface from GPU frame buffer
+        let surface = SDL_CreateRGBSurfaceFrom(
+          m.GPU.FrameBuffer as *uint8,
+          int32(WIDTH),
+          int32(HEIGHT), 32,
+          int32(WIDTH * 4),
+          0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+
+        let file = SDL_RWFromFile(test_output_filename, "wb");
+        SDL_SaveBMP_RW(surface, file, 1);
+
+        break;
       }
     }
   }

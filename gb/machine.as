@@ -21,6 +21,9 @@ let MODE_GB: MachineMode = 1;
 let MODE_CGB: MachineMode = 2;
 
 struct Machine {
+  // Test Mode (for automated test runner)
+  Test: bool;
+
   // Mode (GB / CGB)
   Mode: MachineMode;
 
@@ -50,9 +53,10 @@ struct Machine {
 }
 
 implement Machine {
-  def New(mode: MachineMode): Self {
+  def New(mode: MachineMode, inTest: bool): Self {
     let m: Machine;
     m.Mode = mode;
+    m.Test = inTest;
 
     return m;
   }
@@ -107,7 +111,7 @@ implement Machine {
 
   def Open(self, filename: str) {
     self.Cartridge.Open(filename);
-    self.Cartridge.Trace();
+    // self.Cartridge.Trace();
 
     // If our mode is AUTO then figure out the right mode now
     if self.Mode == MODE_AUTO {
