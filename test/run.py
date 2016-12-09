@@ -95,7 +95,10 @@ def run(bin_path, test_filename, expected_filename):
             is_pass = r == "0 (0)"
             return "PASS" if is_pass else "FAIL"
 
-        except:
+        except Exception as ex:
+            if path.exists(expected_filename):
+                return "FAIL"
+
             # Any error here is a missing expected result
             return "XFAIL"
 

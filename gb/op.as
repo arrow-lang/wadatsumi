@@ -72,7 +72,7 @@ def acquire() {
   *(table + 0x1F) = Operation.New(_1F, "RRA", 1);
 
   *(table + 0x20) = Operation.New(_20, "JR NZ, $%02X", 2);
-  *(table + 0x21) = Operation.New(_21, "LD HL, ($%02X%02X)", 3);
+  *(table + 0x21) = Operation.New(_21, "LD HL, $%02X%02X", 3);
   *(table + 0x22) = Operation.New(_22, "LDI (HL), A", 1);
   *(table + 0x23) = Operation.New(_23, "INC HL", 1);
   *(table + 0x24) = Operation.New(_24, "INC H", 1);
@@ -585,11 +585,11 @@ libc.atexit(release);
 def next(c: *cpu.CPU): Operation {
   let r: Operation;
 
-  let opcode = c.MMU.Read(c.PC);
-  c.PC += 1;
-
-  c.Tick();
-  // let opcode = om.readNext8(c);
+  // let opcode = c.MMU.Read(c.PC);
+  // c.PC += 1;
+  //
+  // c.Tick();
+  let opcode = om.readNext8(c);
 
   // HACK: This really belongs in cpu.as but I can't think of a better
   //       place
@@ -599,11 +599,11 @@ def next(c: *cpu.CPU): Operation {
   }
 
   if opcode == 0xCB {
-    // opcode = om.readNext8(c);
-    opcode = c.MMU.Read(c.PC);
-    c.PC += 1;
-
-    c.Tick();
+    opcode = om.readNext8(c);
+    // opcode = c.MMU.Read(c.PC);
+    // c.PC += 1;
+    //
+    // c.Tick();
 
     r = *(table_CB + opcode);
   } else {
@@ -1885,8 +1885,10 @@ def _E7(c: *cpu.CPU) {
 
 // E8 nn — ADD SP, i8 {4}
 def _E8(c: *cpu.CPU) {
-  c.Tick();
-  c.Tick();
+  // M = 0: instruction decoding
+  // M = 1: memory access for e
+  // M = 2: internal delay
+  // M = 3: internal delay
 
   let n = int16(int8(om.readNext8(c)));
   let r = uint16(int16(c.SP) + n);
@@ -1897,6 +1899,8 @@ def _E8(c: *cpu.CPU) {
   om.flag_set(c, om.FLAG_N, false);
 
   c.SP = r;
+  c.Tick();
+  c.Tick();
 }
 
 // E9 — JP HL {1}
@@ -1960,7 +1964,9 @@ def _F7(c: *cpu.CPU) {
 
 // F8 nn — LD HL, SP + i8 {3}
 def _F8(c: *cpu.CPU) {
-  c.Tick();
+  // M = 0: instruction decoding
+  // M = 1: memory access for e
+  // M = 2: internal delay
 
   let n = int16(int8(om.readNext8(c)));
   let r = uint16(int16(c.SP) + n);
@@ -1971,6 +1977,7 @@ def _F8(c: *cpu.CPU) {
   om.flag_set(c, om.FLAG_N, false);
 
   c.HL = r;
+  c.Tick();
 }
 
 // F9 — LD SP, HL {2}

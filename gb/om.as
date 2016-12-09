@@ -42,10 +42,13 @@ def read8(c: *cpu.CPU, address: uint16): uint8 {
   c.Tick();
 
   // IF during OAM DMA; only HIRAM is accessible
-  if c.OAM_DMA_Timer == 0 or (address >= 0xFF80 and address <= 0xFFFE) {
+  if c.OAM_DMA_Timer == 0 or (address < 0xFE00 or address > 0xFE9F) {
+  // if c.OAM_DMA_Timer == 0 or (address >= 0xFF80 and address <= 0xFFFE) {
     value = c.MMU.Read(address);
   }
 
+  // libc.printf("\t[DMA: %3d] read8  $%04X -> $%02X\n",
+  //   c.OAM_DMA_Timer, address, value);
 
   return value;
 }
@@ -60,10 +63,14 @@ def readNext16(c: *cpu.CPU): uint16 {
 
 // Read 16-bit
 def read16(c: *cpu.CPU, address: uint16): uint16 {
-  let h = read8(c, address + 1);
   let l = read8(c, address + 0);
+  let h = read8(c, address + 1);
 
   let value = uint16(l) | (uint16(h) << 8);
+
+  // libc.printf("\t[DMA: %3d] read16 $%04X -> $%04X\n",
+  //   c.OAM_DMA_Timer, address, value);
+
   return value;
 }
 
@@ -79,9 +86,15 @@ def write8(c: *cpu.CPU, address: uint16, value: uint8) {
 
   // IF during OAM DMA; writes are ignored unless the address
   // is 0xFF46 (OAM DMA restart) or in HIRAM
-  if c.OAM_DMA_Timer == 0 or address == 0xFF46 or (address >= 0xFF80 and address <= 0xFFFE) {
+  let written: bool = false;
+  // if c.OAM_DMA_Timer == 0 or address == 0xFF46 or (address >= 0xFF80 and address <= 0xFFFE) {
+  if c.OAM_DMA_Timer == 0 or address == 0xFF46 or (address < 0xFE00 or address > 0xFE9F) {
     c.MMU.Write(address, value);
+    written = true;
   }
+
+  // libc.printf("\t[DMA: %3d] write8  $%04X <- $%02X (%d)\n",
+  //   c.OAM_DMA_Timer, address, value, written);
 }
 
 // Increment 8-bit

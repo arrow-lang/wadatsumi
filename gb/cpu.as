@@ -290,10 +290,6 @@ implement CPU {
       // Print disassembly/trace
       // TODO: Make configurable from command line
       // self.Trace(operation);
-      //
-      // if self.PC == 0xFDFF {
-      //   libc.printf("Remaining DMA: %d\n", self.OAM_DMA_Timer);
-      // }
 
       // Execute
       // HACK: Taking the address of a reference (`self`) dies
@@ -301,7 +297,7 @@ implement CPU {
 
       // DEBUG: Is the PC now the same PC that we started with (
       // possible inf. loop)
-      if self.LastPC == self.PC and self.IME == 0 {
+      if self.LastPC == self.PC and (self.IME == 0 or self.IE == 0) {
         // Infinite jump with IME=0 is an infinite loop
         // Enter STOP mode to stop CPU cycling
         self.STOP = 1;
@@ -311,6 +307,8 @@ implement CPU {
             self.PC);
         }
       }
+
+      // libc.printf("--------------------------------------------------\n");
 
       // Increment total cycle count and let's do this again
       cycles += self.Cycles;
