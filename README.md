@@ -12,17 +12,15 @@
  - Prevent opposite directions on the D-Pad from being pressed simultaneously (
    doing so locks up some games like "Pocket Bomberman")
 
- - [CGB] Implement simplified sprite priority when in CGB mode (no x-cache)
-
- - [CGB] Background can override OAM priority
- - [CGB] Background/Window can be told to have lower priority 100% with LCDC
-
- - [CGB] HDMA
+ - [CGB] H-Blank DMA
 
  - Command Line Arguments
     - `-m gb` and `-m cgb` to select mode
     - `--scale` / `-s` to specify the scale factor
     - `--audio-sample-rate` to specify the audio sample rate
+
+ - When the LCD is enabled we should still emit "refresh" events to the
+   front-end to keep up with V-Sync
 
 ### Bugs
 
@@ -38,7 +36,3 @@
 
  - In "Pokemon Trading Card Game"; I get an immediate white screen and then
    it seems to freeze
-
- - In "Donkey Kong"; there are painful graphical glitches between levels
-
- - In "Donkey Kong"; there are just a ton of small glitches

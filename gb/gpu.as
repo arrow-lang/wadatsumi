@@ -131,8 +131,10 @@ struct GPU {
   //   Bit 1 - OBJ (Sprite) Display Enable    (0=Off, 1=On)
   SpriteEnable: bool;
 
-  //   Bit 0 - BG Display (for CGB see below) (0=Off, 1=On)
-  BackgroundEnable: bool;
+  //   Bit 0 - BG Display
+  //    For  GB -> 0=Off, 1=On
+  //    For CGB -> 0=Background/Window have no priority, 1=Normal priority
+  BackgroundDisplay: bool;
 
   // FF42 - SCY - Scroll Y (R/W)
   SCY: uint8;
@@ -262,7 +264,7 @@ implement GPU {
       i += 1;
     }
 
-    if self.LCDEnable and self.BackgroundEnable {
+    if self.LCDEnable and (self.Machine.Mode == machine.MODE_CGB or self.BackgroundDisplay) {
       self.RenderBackground();
     } else {
       // Background not enabled
@@ -315,8 +317,15 @@ implement GPU {
 
       let pixel = self.getPixelForTile(tile, tileX, tileY, (attr & 0x8) >> 3);
 
-      // Set pixel cache
-      *(self.PixelCache + offset + i) = 1 if pixel > 0 else 0;
+      if self.Machine.Mode == machine.MODE_GB or self.BackgroundDisplay {
+        // Set pixel cache
+        *(self.PixelCache + offset + i) = 1 if pixel > 0 else 0;
+      }
+
+      if self.Machine.Mode == machine.MODE_CGB and (attr & 0x80) != 0 and self.BackgroundDisplay {
+        // Force priority of this tile (over sprites)
+        *(self.PixelCache + offset + i) |= 0b100 if pixel > 0 else 0;
+      }
 
       // Apply palette and color processing
       let color = if self.Machine.Mode == machine.MODE_CGB {
@@ -362,8 +371,15 @@ implement GPU {
         let pixel = self.getPixelForTile(
           tile, tileX, tileY, (attr & 0x8) >> 3);
 
-        // Set pixel cache
-        *(self.PixelCache + offset + i) |= 1 if pixel > 0 else 0;
+        if self.Machine.Mode == machine.MODE_GB or self.BackgroundDisplay {
+          // Set pixel cache
+          *(self.PixelCache + offset + i) = 1 if pixel > 0 else 0;
+        }
+
+        if self.Machine.Mode == machine.MODE_CGB and (attr & 0x80) != 0 and self.BackgroundDisplay {
+          // Force priority of this tile (over sprites)
+          *(self.PixelCache + offset + i) |= 0b100 if pixel > 0 else 0;
+        }
 
         // Apply palette and color processing
         let color = if self.Machine.Mode == machine.MODE_CGB {
@@ -448,8 +464,15 @@ implement GPU {
             let pixelCache = *(self.PixelCache + cacheOffset);
 
             // Another sprite was drawn and the drawn sprite is < on the
-            // X-axis
-            if bits.Test(pixelCache, 1) and (xCache <= uint8(sx + 8)) {
+            // X-axis (only checked in GB mode)
+            if self.Machine.Mode == machine.MODE_GB and bits.Test(pixelCache, 1) and (xCache <= uint8(sx + 8)) {
+              x += 1;
+              continue;
+            }
+
+            // In CGB mode; there is a override bit that can be set which
+            // forces sprites to bow down to the background layers
+            if bits.Test(pixelCache, 2) {
               x += 1;
               continue;
             }
@@ -729,7 +752,7 @@ implement GPU {
         bits.Bit(self.BackgroundTileMapSelect, 3) |
         bits.Bit(self.SpriteSize, 2) |
         bits.Bit(self.SpriteEnable, 1) |
-        bits.Bit(self.BackgroundEnable, 0)
+        bits.Bit(self.BackgroundDisplay, 0)
       );
     } else if address == 0xFF41 {
       (
@@ -795,7 +818,7 @@ implement GPU {
       self.BackgroundTileMapSelect = bits.Test(value, 3);
       self.SpriteSize = bits.Test(value, 2);
       self.SpriteEnable = bits.Test(value, 1);
-      self.BackgroundEnable = bits.Test(value, 0);
+      self.BackgroundDisplay = bits.Test(value, 0);
 
       // Reset mode/scanline counters on LCD disable
       if not self.LCDEnable {
