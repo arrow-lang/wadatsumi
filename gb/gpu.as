@@ -80,9 +80,14 @@ struct GPU {
   // FF44 - LY - LCDC Y-Coordinate (R)
   LY: uint8;
 
-  // LYToCompare — pseudo register used to compare to LYC as the comparison
-  //               is delayed by a tick after LY is set.
+  // LYToCompare — LY Shadow register
   LYToCompare: uint8;
+
+  // LY Comparison Timer
+  //    When a change to LY happens; a 4 T-Cycle timer begins. After expiring
+  //    LYToCompare is available and the STAT IF is flagged if enabled and
+  //    matched
+  LYCTimer: uint8;
 
   // FF41 - STAT - LCDC Status (R/W)
   // Bit 6 - LYC=LY Coincidence Interrupt (1=Enable) (Read/Write)
@@ -212,6 +217,7 @@ implement GPU {
 
     self.LY = 0;
     self.LYToCompare = 0;
+    self.LYCTimer = 0;
     self.STATInterruptSignal = false;
 
     self.Mode = 0;
@@ -248,29 +254,29 @@ implement GPU {
 
   def Render(self) {
     // Clear line
-    // let i = 0;
-    // let offset = uint64(self.LY) * DISP_WIDTH;
-    // while i < DISP_WIDTH {
-    //   *(self.PixelCache + offset + i) = 0;
-    //   *(self.FrameBuffer + offset + i) = 0xFFFFFFFF;
-    //   i += 1;
-    // }
+    let i = 0;
+    let offset = uint64(self.LY) * DISP_WIDTH;
+    while i < DISP_WIDTH {
+      *(self.PixelCache + offset + i) = 0;
+      *(self.FrameBuffer + offset + i) = 0xFFFFFFFF;
+      i += 1;
+    }
 
-    if self.BackgroundEnable {
+    if self.LCDEnable and self.BackgroundEnable {
       self.RenderBackground();
     } else {
       // Background not enabled
       // TODO: Clear background and pixel cache
     }
 
-    if self.WindowEnable {
+    if self.LCDEnable and self.WindowEnable {
       self.RenderWindow();
     } else {
       // Window not enabled
       // TODO: Should we do anything special here?
     }
 
-    if self.SpriteEnable {
+    if self.LCDEnable and self.SpriteEnable {
       self.RenderSprites();
     } else {
       // Sprites not enabled
@@ -593,81 +599,110 @@ implement GPU {
   }
 
   def Tick(self) {
-    // Most activity stops when LCD is disabled
+    // Most activity stops when LCD is disabled (?)
     if not self.LCDEnable { return; }
 
-    // Increment mode cycle counter
-    self.Cycles += 1;
+    // Tick is called each M-Cycle but the GPU runs on T-Cycles
+    let i = 0;
+    while i < 4 {
+      // Mode to use for STAT comparisions (if at $FF, we just use self.Mode)
+      let modeSTAT = 0xFF;
 
-    // LYToCompare is set to LY if it was set to a pending status of 0
-    // LYToCompare is on a 1-cycle delay from LY
-    if self.LYToCompare == 0 { self.LYToCompare = self.LY; }
+      // Increment cycle counter (reset to 0 at the beginning of each scanline)
+      self.Cycles += 1;
 
-    // Check for correct operation semantics based on mode and
-    // current cycle count
-    if self.Mode == 0 and self.Cycles <= 1 {
-      // Each scanline (outside of VBLK) is in mode 0 for 1 cycle
-      if self.LY <= 143 {
-        self.Mode = 2;
-      } else {
-        // Enter V-Blank
-        // This should occur at 70224 clocks
+      // LY is compared on a 4 T-Cycle delay from its changes
+      if self.LYCTimer > 0 { self.LYCTimer -= 1; }
 
-        self.Mode = 1;
-        self.CPU.IF |= 0x01;
+      // A scanline starts in mode 0 (for 4 T-Cycles), proceeds to mode 2,
+      //  then goes to mode 3 and, when the LCD controller has finished
+      //  drawing the line (which depends on a lot) it goes to mode 0.
+      //  During lines 144-153 the LCD controller is in mode 1.
 
-        self.Refresh();
-      };
-    } else if self.Mode == 2 and self.Cycles >= (84 / 4) {
-      // Mode 2 lasts for 84 clocks
-      self.Mode = 3;
-    } else if self.Mode == 3 and self.Cycles >= (256 / 4) {
-      // TODO: https://www.reddit.com/r/EmuDev/comments/59pawp/gb_mode3_sprite_timing/?st=iw9j5tnl&sh=6825f812
-      //       Need to determine proper length of mode-3
-      self.Mode = 0;
+      // The V-Blank interrupt is triggered when the LCD controller
+      // enters the VBL screen mode (mode 1, LY=144).
 
-      // Render: Scanline
-      self.Render();
-    } else if self.Mode == 0 and self.Cycles >= (456 / 4) {
-      // Each scanline lasts for exactly 456 clocks
-      self.LY += 1;
-      self.LYToCompare = 0;
-      self.Mode = 0;
-      self.Cycles -= (456 / 4);
-    } else if self.Mode == 1 {
-      if self.Cycles >= (456 / 4) {
-        // Each scanline in VBLANK lasts for the same 456 clocks
-        // Mode 1 is persisted until line-153
-        if self.LY == 0 {
-          self.Mode = 0;
+      // V-Blank lasts 4560 T-cycles (9120 in double-speed mode).
+
+      if self.Mode == 0 and self.Cycles == 4 {
+        // Scanlines 1-144 start in mode 0 for the first few T-Cycles
+        if self.LY == 144 {
+          // Proceed to mode 1 — V-Blank
+          self.Mode = 1;
+          self.CPU.IF |= 0x01;
+
+          // Trigger the front-end to refresh the scren
+          self.Refresh();
         } else {
-          self.LY += 1;
-          self.LYToCompare = 0;
+          // Proceed to mode 2 — Searching OAM-RAM
+          self.Mode = 2;
         }
-        self.Cycles -= (456 / 4);
-      } else if self.LY >= 153 and self.Cycles >= 1 {
-        // Scanline counter is reset to 0 on the first cycle of #153
-        self.LY = 0;
-        self.LYToCompare = 0;
+      } else if self.Mode == 2 and self.Cycles == 88 {
+        // Proceed to mode 3 — Transferring Data to LCD Driver
+        self.Mode = 3;
+      } else if self.Mode == 3 and self.Cycles == 256 {
+        // The mode 3 / H-Blank STAT interrupt is signalled 1 T-Cycle
+        // before mode 3 itself for reasons unknown to mere mortals
+        modeSTAT = 0;
+      } else if self.Mode == 3 and self.Cycles == 257 {
+        // Mode 3 ends at 254 T-Cycles at BASE (no sprites or SCX funky junk)
+        // TODO: https://www.reddit.com/r/EmuDev/comments/59pawp/gb_mode3_sprite_timing/?st=iw9j5tnl&sh=6825f812
+        //       Need to determine proper length of mode-3
+
+        // Proceed to mode 0 — H-Blank
+        self.Mode = 0;
+
+        // Render scanline
+        self.Render();
+      } else if self.Mode == 0 and self.Cycles == 452 {
+        // A scanline takes 456 T-Cycles to complete (912 in double-speed mode)
+        self.LY += 1;
+        self.LYToCompare = self.LY;
+        self.LYCTimer = 4;
+        self.Mode = 0;
+      } else if self.Mode == 1 {
+        if self.Cycles == 452 {
+          if self.LY == 0 {
+            // Restart process (back to top of LCD)
+            self.Mode = 0;
+          } else {
+            self.LY += 1;
+            self.LYToCompare = self.LY;
+            self.LYCTimer = 4;
+          }
+        } else if self.LY == 153 and self.Cycles == 4 {
+          // Scanline 153 spends only 4 T-Cycles with LY == 153
+          self.LY = 0;
+          self.LYToCompare = self.LY;
+          self.LYCTimer = 4;
+        }
       }
+
+      if self.Cycles == 456 {
+        // Reset cycle counter (end of scanline)
+        self.Cycles = 0;
+      }
+
+      // STAT Interrupt
+      // The interrupt is fired when the signal TRANSITIONS from 0 TO 1
+      // If it STAYS 1 during a screen mode change then no interrupt is fired.
+      if modeSTAT == 0xFF { modeSTAT = self.Mode; }
+      let statInterruptSignal = (
+        ((self.LYToCompare == self.LYC) and self.LYCCoincidenceInterruptEnable) or
+        (modeSTAT == 0 and self.Mode0InterruptEnable) or
+        (modeSTAT == 2 and self.Mode2InterruptEnable) or
+        (modeSTAT == 1 and (
+          self.Mode1InterruptEnable or self.Mode2InterruptEnable))
+      );
+
+      if not self.STATInterruptSignal and statInterruptSignal {
+        self.CPU.IF |= 0x2;
+      }
+
+      self.STATInterruptSignal = statInterruptSignal;
+
+      i += 1;
     }
-
-    // STAT Interrupt
-    // The interrupt is fired when the signal TRANSITIONS from 0 TO 1
-    // If it STAYS 1 during a screen mode change then no interrupt is fired.
-    let statInterruptSignal = (
-      (self.LYToCompare == self.LYC and self.LYCCoincidenceInterruptEnable) or
-      (self.Mode == 0 and self.Mode0InterruptEnable) or
-      (self.Mode == 2 and self.Mode2InterruptEnable) or
-      (self.Mode == 1 and (
-        self.Mode1InterruptEnable or self.Mode2InterruptEnable))
-    );
-
-    if not self.STATInterruptSignal and statInterruptSignal {
-      self.CPU.IF |= 0x2;
-    }
-
-    self.STATInterruptSignal = statInterruptSignal;
   }
 
   def Read(self, address: uint16, ptr: *uint8): bool {
@@ -680,7 +715,7 @@ implement GPU {
       }
     } else if address >= 0xFE00 and address <= 0xFE9F {
       // OAM cannot be read during mode-2 or mode-3
-      if self.Mode == 2 or self.Mode == 3 {
+      if (self.Mode == 2 or self.Mode == 3) {
         0xFF;
       } else {
         *(self.OAM + (address - 0xFE00));
@@ -703,7 +738,7 @@ implement GPU {
         bits.Bit(self.Mode2InterruptEnable, 5) |
         bits.Bit(self.Mode1InterruptEnable, 4) |
         bits.Bit(self.Mode0InterruptEnable, 3) |
-        bits.Bit(self.LYToCompare == self.LYC, 2) |
+        bits.Bit(self.LYCTimer == 0 and (self.LYToCompare == self.LYC), 2) |
         self.Mode
       );
     } else if address == 0xFF42 {
