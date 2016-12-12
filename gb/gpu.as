@@ -295,10 +295,7 @@ implement GPU {
     }
 
     if self.LCDEnable and self.WindowEnable {
-      self.RenderWindow();
-
-      // Rendering the window takes 6 cycles unless WX=0 then it takes 7
-      self.Mode3Length += (7 if self.WX == 0 else 6);
+      self.Mode3Length += self.RenderWindow();
     } else {
       // Window not enabled
       // TODO: Should we do anything special here?
@@ -368,8 +365,14 @@ implement GPU {
     }
   }
 
-  def RenderWindow(self) {
+  def RenderWindow(self): uint16 {
+    let cycles: uint16 = 0;
+
     if self.LY >= self.WY {
+      // Rendering the window takes 6 cycles unless WX=0 then it takes 7
+      cycles += 24;
+      if self.WX <= 7 { cycles += 1; }
+
       // Tile Map (Offset)
       let map: uint64 = 0x1C00 if self.WindowTileMapSelect else 0x1800;
       map += uint64((self.LY - self.WY) >> 3) << 5;
@@ -421,6 +424,8 @@ implement GPU {
         i += 1;
       }
     }
+
+    return cycles;
   }
 
   def RenderSprites(self): uint16 {
