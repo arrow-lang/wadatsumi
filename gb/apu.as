@@ -298,8 +298,8 @@ implement APU {
           if self.Channel4REnable { sample.R += ch4; }
         }
 
-        sample.L *= int16(self.VolumeL) * 24;
-        sample.R *= int16(self.VolumeR) * 24;
+        sample.L *= int16(self.VolumeL) * 8;
+        sample.R *= int16(self.VolumeR) * 8;
 
         *(self.Buffer + self.BufferIndex) = sample;
         self.BufferIndex += 1;

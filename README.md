@@ -14,6 +14,10 @@
 
  - [CGB] H-Blank DMA
 
+ - MBC3 Timer
+
+ - MBC5 Rumble
+
  - Command Line Arguments
     - `-m gb` and `-m cgb` to select mode
     - `--scale` / `-s` to specify the scale factor

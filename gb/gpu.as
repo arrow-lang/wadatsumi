@@ -69,6 +69,11 @@ struct GPU {
   // determine collision priority
   SpriteXCache: *uint8;
 
+  // Sprite Cycle Bucket
+  // When calculating timing of rendering sprites; each visible sprite
+  // causes a stall of up to 5 cycles in a 8-pixel bucket (of 20)
+  SpriteCycleBuckets: *uint8;
+
   // Pixel Cache
   // Array of 2-bit values where b0 is 1 if background/window was rendered
   // and b1 is 1 if a sprite was rendered
@@ -76,6 +81,9 @@ struct GPU {
 
   // Cycle counter for Mode
   Cycles: uint16;
+
+  // Length of Mode 3 (in cycles); calc. from .Render
+  Mode3Length: uint16;
 
   // FF44 - LY - LCDC Y-Coordinate (R)
   LY: uint8;
@@ -196,6 +204,7 @@ implement GPU {
     g.PixelCache = libc.malloc(DISP_HEIGHT * DISP_WIDTH);
     g.BCPD = libc.malloc(0x40);
     g.OCPD = libc.malloc(0x40);
+    g.SpriteCycleBuckets = libc.malloc(30);
 
     return g;
   }
@@ -208,6 +217,7 @@ implement GPU {
     libc.free(self.PixelCache);
     libc.free(self.BCPD);
     libc.free(self.OCPD);
+    libc.free(self.SpriteCycleBuckets);
   }
 
   def Reset(self) {
@@ -216,6 +226,7 @@ implement GPU {
     libc.memset(self.FrameBuffer as *uint8, 0, (DISP_HEIGHT * DISP_WIDTH * 4));
     libc.memset(self.SpriteXCache, 0, (DISP_HEIGHT * DISP_WIDTH));
     libc.memset(self.PixelCache, 0, (DISP_HEIGHT * DISP_WIDTH));
+    libc.memset(self.SpriteCycleBuckets, 0, 30);
 
     self.LY = 0;
     self.LYToCompare = 0;
@@ -223,6 +234,7 @@ implement GPU {
     self.STATInterruptSignal = false;
 
     self.Mode = 0;
+    self.Mode3Length = 0;
     self.Cycles = 0;
 
     self.BGP = 0xFC;
@@ -264,6 +276,17 @@ implement GPU {
       i += 1;
     }
 
+    // Rendering a full background takes 165 cycles
+    //  hblank_ly_scx_timing-GS.gb        : 168..171
+    //  intr_2_mode0_timing_sprites.gb    : 172..175
+    self.Mode3Length = 175;
+
+    // The PPU stalls for fine SCX adjustments for up to 2 M-Cycles
+    let scx_ = self.SCX % 8;
+    if      scx_ == 0  { self.Mode3Length += 0; }
+    else if scx_ <= 4  { self.Mode3Length += 4; }
+    else               { self.Mode3Length += 8; }
+
     if self.LCDEnable and (self.Machine.Mode == machine.MODE_CGB or self.BackgroundDisplay) {
       self.RenderBackground();
     } else {
@@ -273,13 +296,16 @@ implement GPU {
 
     if self.LCDEnable and self.WindowEnable {
       self.RenderWindow();
+
+      // Rendering the window takes 6 cycles unless WX=0 then it takes 7
+      self.Mode3Length += (7 if self.WX == 0 else 6);
     } else {
       // Window not enabled
       // TODO: Should we do anything special here?
     }
 
     if self.LCDEnable and self.SpriteEnable {
-      self.RenderSprites();
+      self.Mode3Length += (self.RenderSprites() >> 2) << 2;
     } else {
       // Sprites not enabled
       // TODO: Should we do anything special here?
@@ -397,7 +423,7 @@ implement GPU {
     }
   }
 
-  def RenderSprites(self) {
+  def RenderSprites(self): uint16 {
     // Sprite attributes reside in the Sprite Attribute Table (
     // OAM - Object Attribute Memory) at $FE00-FE9F.
     // Each of the 40 entries consists of four bytes with the
@@ -413,6 +439,11 @@ implement GPU {
     //    Bit4   Palette number  **Non CGB Mode Only** (0=OBP0, 1=OBP1)
     //    Bit3   Tile VRAM-Bank  **CGB Mode Only**     (0=Bank 0, 1=Bank 1)
     //    Bit2-0 Palette number  **CGB Mode Only**     (OBP0-7)
+
+    // Initialize timing information
+    let totalCycles = (self.SCX & 7);
+    libc.memset(self.SpriteCycleBuckets, 0, 30);
+    let hasSpriteAtX0 = false;
 
     let spriteHeight = 16 if self.SpriteSize else 8;
     let i = 0;
@@ -523,12 +554,48 @@ implement GPU {
         }
 
         if rendered {
+          if s.X < 168 {
+            // This is a visible sprite; takes 6 cycles
+            totalCycles += 6;
+
+            let x = s.X + self.SCX;
+            if x < 0 { x = 0; }
+
+            // Mark if this sprite is at <=0
+            if x <= 0 { hasSpriteAtX0 = true; }
+
+            // Determine and update stall bucket
+            //  Each sprite drawn causes a stall of up to 5 cycles
+            //  in each 8-pixel "bucket".
+            let bucketI = x >> 3;
+
+            let stall = 5 - (int8(x) & 7);
+            if stall < 0 { stall = 0; }
+
+            *(self.SpriteCycleBuckets + bucketI) = max(
+              *(self.SpriteCycleBuckets + bucketI),
+              uint8(stall),
+            );
+          }
+
           n += 1;
         }
       }
 
       i += 1;
     }
+
+    // Sum the 8-pixel bucket stalls
+    i = 0;
+    while i < 30 {
+      totalCycles += *(self.SpriteCycleBuckets + i);
+      i += 1;
+    }
+
+    // If a sprite is at x<=0; PPU stalls for an additional SCX & 7
+    if hasSpriteAtX0 { totalCycles += (self.SCX & 7); }
+
+    return uint16(totalCycles);
   }
 
   // Get tile index from map
@@ -623,10 +690,12 @@ implement GPU {
 
   def Tick(self) {
     // Most activity stops when LCD is disabled (?)
-    if not self.LCDEnable { return; }
+    if not self.LCDEnable {
+      return;
+    }
 
     // Tick is called each M-Cycle but the GPU runs on T-Cycles
-    let i = 0;
+    let i: int8 = 0;
     while i < 4 {
       // Mode to use for STAT comparisions (if at $FF, we just use self.Mode)
       let modeSTAT = 0xFF;
@@ -647,7 +716,7 @@ implement GPU {
 
       // V-Blank lasts 4560 T-cycles (9120 in double-speed mode).
 
-      if self.Mode == 0 and self.Cycles == 4 {
+      if self.Mode == 0 and self.Cycles == 5 {
         // Scanlines 1-144 start in mode 0 for the first few T-Cycles
         if self.LY == 144 {
           // Proceed to mode 1 — V-Blank
@@ -660,31 +729,35 @@ implement GPU {
           // Proceed to mode 2 — Searching OAM-RAM
           self.Mode = 2;
         }
-      } else if self.Mode == 2 and self.Cycles == 88 {
+      } else if self.Mode == 0 and self.Cycles >= 1 and self.Cycles < 5 and self.LY >= 1 and self.LY <= 143 {
+        // On the 0th cycle; the mode-2 interrupt is fired for lines 1-143
+        modeSTAT = 2;
+      } else if self.Mode == 2 and self.Cycles == 85 {
         // Proceed to mode 3 — Transferring Data to LCD Driver
         self.Mode = 3;
-      } else if self.Mode == 3 and self.Cycles == 256 {
-        // The mode 3 / H-Blank STAT interrupt is signalled 1 T-Cycle
-        // before mode 3 itself for reasons unknown to mere mortals
-        modeSTAT = 0;
-      } else if self.Mode == 3 and self.Cycles == 257 {
-        // Mode 3 ends at 254 T-Cycles at BASE (no sprites or SCX funky junk)
-        // TODO: https://www.reddit.com/r/EmuDev/comments/59pawp/gb_mode3_sprite_timing/?st=iw9j5tnl&sh=6825f812
-        //       Need to determine proper length of mode-3
-
-        // Proceed to mode 0 — H-Blank
-        self.Mode = 0;
 
         // Render scanline
         self.Render();
-      } else if self.Mode == 0 and self.Cycles == 452 {
+      } else if self.Mode == 3 and self.Cycles == (85 + self.Mode3Length) {
+        // Proceed to mode 0 — H-Blank
+        self.Mode = 0;
+      } else if self.Mode == 3 and self.Cycles >= ((85 + self.Mode3Length) - 7) and self.Cycles < (85 + self.Mode3Length) {
+        // The mode 3 / H-Blank STAT interrupt is signalled 1 M-Cycle
+        // before mode 3 itself for reasons unknown to mere mortals
+        modeSTAT = 0;
+      } else if self.Mode == 0 and self.Cycles == 457 {
         // A scanline takes 456 T-Cycles to complete (912 in double-speed mode)
+        // Note that the we wrap-around and handle cycle 0 twice for >0 scanlines
         self.LY += 1;
         self.LYToCompare = self.LY;
         self.LYCTimer = 4;
         self.Mode = 0;
+        self.Cycles = 0;
+        i -= 1;
       } else if self.Mode == 1 {
-        if self.Cycles == 452 {
+        if self.Cycles == 457 {
+          self.Cycles = 0;
+          i -= 1;
           if self.LY == 0 {
             // Restart process (back to top of LCD)
             self.Mode = 0;
@@ -693,7 +766,7 @@ implement GPU {
             self.LYToCompare = self.LY;
             self.LYCTimer = 4;
           }
-        } else if self.LY == 153 and self.Cycles == 4 {
+        } else if self.LY == 153 and self.Cycles == 5 {
           // Scanline 153 spends only 4 T-Cycles with LY == 153
           self.LY = 0;
           self.LYToCompare = self.LY;
@@ -701,17 +774,12 @@ implement GPU {
         }
       }
 
-      if self.Cycles == 456 {
-        // Reset cycle counter (end of scanline)
-        self.Cycles = 0;
-      }
-
       // STAT Interrupt
       // The interrupt is fired when the signal TRANSITIONS from 0 TO 1
       // If it STAYS 1 during a screen mode change then no interrupt is fired.
       if modeSTAT == 0xFF { modeSTAT = self.Mode; }
       let statInterruptSignal = (
-        ((self.LYToCompare == self.LYC) and self.LYCCoincidenceInterruptEnable) or
+        ((self.LYCTimer == 0) and (self.LYToCompare == self.LYC) and self.LYCCoincidenceInterruptEnable) or
         (modeSTAT == 0 and self.Mode0InterruptEnable) or
         (modeSTAT == 2 and self.Mode2InterruptEnable) or
         (modeSTAT == 1 and (
@@ -878,25 +946,29 @@ implement GPU {
     return true;
   }
 
-    def AsMemoryController(self, this: *GPU): mmu.MemoryController {
-      let mc: mmu.MemoryController;
-      mc.Read = MCRead;
-      mc.Write = MCWrite;
-      mc.Data = this as *uint8;
-      mc.Release = MCRelease;
+  def AsMemoryController(self, this: *GPU): mmu.MemoryController {
+    let mc: mmu.MemoryController;
+    mc.Read = MCRead;
+    mc.Write = MCWrite;
+    mc.Data = this as *uint8;
+    mc.Release = MCRelease;
 
-      return mc;
-    }
+    return mc;
   }
+}
 
-  def MCRelease(this: *mmu.MemoryController) {
-    // Do nothing
-  }
+def MCRelease(this: *mmu.MemoryController) {
+  // Do nothing
+}
 
-  def MCRead(this: *mmu.MemoryController, address: uint16, ptr: *uint8): bool {
-    return (this.Data as *GPU).Read(address, ptr);
-  }
+def MCRead(this: *mmu.MemoryController, address: uint16, ptr: *uint8): bool {
+  return (this.Data as *GPU).Read(address, ptr);
+}
 
-  def MCWrite(this: *mmu.MemoryController, address: uint16, value: uint8): bool {
-    return (this.Data as *GPU).Write(address, value);
-  }
+def MCWrite(this: *mmu.MemoryController, address: uint16, value: uint8): bool {
+  return (this.Data as *GPU).Write(address, value);
+}
+
+def max(a: uint8, b: uint8): uint8 {
+  return a if a > b else b;
+}

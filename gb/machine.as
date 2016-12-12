@@ -140,12 +140,12 @@ implement Machine {
         libc.exit(-1);
       }
 
-      if self.Cartridge.HasTimer {
-        libc.printf("error: unsupported cartridge type: %02X\n",
-          self.Cartridge.Type);
-
-        libc.exit(-1);
-      }
+      // if self.Cartridge.HasTimer {
+      //   libc.printf("error: unsupported cartridge type: %02X\n",
+      //     self.Cartridge.Type);
+      //
+      //   libc.exit(-1);
+      // }
 
       self.MMU.Controllers.Push(mc);
     }
